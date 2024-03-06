@@ -2,7 +2,7 @@
 
 计数器：
 
-## <font color=#b11d23>20 / 163</font> 
+## <font color=#b11d23>21 / 163</font> 
 
 <!--more-->
 
@@ -520,3 +520,21 @@ static int si; // explicitly static
 int f(); // extern by default
 static int sf(); // explicitly static 
 ```
+
+### [21](https://cppquiz.org/quiz/question/291)
+
+```cpp
+#include <iostream>
+
+int _global = 1;
+
+int main() {
+  std::cout << _global;
+}
+```
+
+是保留字 ub
+
+> In addition, some identifiers are reserved for use by C++ implementations and shall not be used otherwise; no diagnostic is required.
+>    Each identifier that contains a double underscore __ or begins with an underscore followed by an uppercase letter is reserved to the implementation for any use.
+>    Each identifier that begins with an underscore is reserved to the implementation for use as a name in the global namespace.

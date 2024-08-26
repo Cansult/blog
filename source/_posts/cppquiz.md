@@ -540,3 +540,190 @@ int main() {
 >    Each identifier that contains a double underscore __ or begins with an underscore followed by an uppercase letter is reserved to the implementation for any use.
 >
 >    Each identifier that begins with an underscore is reserved to the implementation for use as a name in the global namespace.
+
+### [130](https://cppquiz.org/quiz/question/130)
+
+```cpp
+#include <iostream>
+using namespace std;
+
+template<typename T>
+void adl(T)
+{
+  cout << "T";
+}
+
+struct S
+{
+};
+
+template<typename T>
+void call_adl(T t)
+{
+  adl(S());
+  adl(t);
+}
+
+void adl(S)
+{
+  cout << "S";
+}
+
+int main ()
+{
+  call_adl(S());
+}
+```
+
+与模版参数相关的名字查找会被推迟到模板参数确定的地方，而名字查找只找之前的
+
+### [289](https://cppquiz.org/quiz/question/289)
+
+```cpp
+#include <iostream>
+
+void f(int a = []() { static int b = 1; return b++; }())
+{
+   std::cout << a;
+}
+
+int main()
+{
+   f();
+   f();
+}
+```
+
+默认参数是将参数压入栈中，而不是简单的编译期替换(?)，所以两次调用的lambda是相同的
+
+### [239](https://cppquiz.org/quiz/question/249)
+
+```cpp
+#include <iostream>
+
+using namespace std;
+
+int main() {
+    int a = '0';
+    char const &b = a;
+    cout << b;
+    a++;
+    cout << b;
+}
+```
+
+引用只能指向相同类型或者派生类
+
+不相关类型之间的引用建立会导致隐式类型转换，因此 `const char&` 实际上指向的是一个右值临时变量。
+
+如果是指针的话可能就是要考虑大小端了吧
+
+### [354](https://cppquiz.org/quiz/question/354)
+
+```cpp
+#include <cstdlib>
+#include <iostream>
+
+struct S {
+    char s;
+    S(char s): s{s} {}
+    ~S() { std::cout << s; }
+};
+
+S a('a');
+
+int main() {
+    S b('b');
+    std::exit(0);
+}
+```
+
+`std::exit(0)` 有自己的[析构顺序](https://timsong-cpp.github.io/cppwp/n4659/support.start.term#9.1)
+
+但是总之他**不管**自动变量的析构，这点好像还挺要命的
+
+### [186](cppquiz.org/quiz/question/186)
+
+```cpp
+#include <iostream>
+#include <typeinfo>
+
+void takes_pointer(int* pointer) {
+  if (typeid(pointer) == typeid(int[])) std::cout << 'a';
+  if (typeid(pointer) == typeid(int*)) std::cout << 'p';
+}
+
+void takes_array(int array[]) {
+  if (typeid(array) == typeid(int[])) std::cout << 'a';
+  if (typeid(array) == typeid(int*)) std::cout << 'p';
+}
+
+int main() {
+  int* pointer = nullptr;
+  int array[1];
+
+  takes_pointer(array);
+  takes_array(pointer);
+
+  std::cout << (typeid(int*) == typeid(int[]));
+}
+```
+
+C++对数组参数的处理感觉有点傻逼
+
+`int[]` 的类型是有一个 `int` 的数组
+
+数组传入时会被退化为一个纯右值的指针
+
+而 `int[]` 作为函数参数时，会在**确定每个参数的类型之后**，变为 `int*` 
+
+[159](https://cppquiz.org/quiz/question/159)
+
+```cpp
+#include <iostream>
+
+int i;
+
+void f(int x) {
+    std::cout << x << i;
+}
+
+int main() {
+    i = 3;
+    f(i++);
+}
+```
+
+函数调用是一个序列化点
+
+所有与参数相关的数值计算和负作用都会在调用之前完成
+
+[208](https://cppquiz.org/quiz/question/208)
+
+```cpp
+#include <iostream>
+#include <map>
+using namespace std;
+
+bool default_constructed = false;
+bool constructed = false;
+bool assigned = false;
+
+class C {
+public:
+    C() { default_constructed = true; }
+    C(int) { constructed = true; }
+    C& operator=(const C&) { assigned = true; return *this;}
+};
+
+int main() {
+    map<int, C> m;
+    m[7] = C(1);
+
+    cout << default_constructed << constructed << assigned;
+}
+```
+
+`map` 在用 `[]` 访问不存在的key时会先`insert`一个，哪怕待会就赋值了
+
+

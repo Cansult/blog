@@ -726,4 +726,39 @@ int main() {
 
 `map` 在用 `[]` 访问不存在的key时会先`insert`一个，哪怕待会就赋值了
 
+[312](https://cppquiz.org/quiz/question/312)
+
+```cpp
+#include <iostream>
+
+class A {};
+
+class B {
+public:
+    int x = 0;
+};
+
+class C : public A, B {};
+
+struct D : private A, B {};
+
+
+int main()
+{
+    C c;
+    c.x = 3;
+
+    D d;
+    d.x = 3;
+
+    std::cout << c.x << d.x;
+}
+```
+
+没想到吧 继承的可见性修饰符并不对逗号后面的生效
+
+但是struct默认是公有继承 class默认是私有继承
+
+所以其实ce的是`c.x = 3`这句
+
 

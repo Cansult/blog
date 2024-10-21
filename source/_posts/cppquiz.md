@@ -6,7 +6,7 @@
 
 <!--more-->
 
-### [1](https://cppquiz.org/quiz/question/313)
+### [313](https://cppquiz.org/quiz/question/313)
 
 ```cpp
 #include <iostream>
@@ -28,7 +28,7 @@ int main()
 
 右值引用本身是左值，但是在隐式转换后就变成了 prvalue
 
-### [2](https://cppquiz.org/quiz/question/244)
+### [244](https://cppquiz.org/quiz/question/244)
 
 ```cpp
 #include <iostream>
@@ -47,7 +47,7 @@ int main() {
 
 与模版参数推导无关的 ill-form 会导致整个程序 ill-from ，是UB
 
-### [3](https://cppquiz.org/quiz/question/250)
+### [250](https://cppquiz.org/quiz/question/250)
 
 ```cpp
 #include<iostream>
@@ -76,7 +76,7 @@ int main(){
 
 第一个函数需要将第二个参数隐式转换为 `...` ，而第二个不需要，所以第二个更好
 
-### [4](https://cppquiz.org/quiz/question/148)
+### [148](https://cppquiz.org/quiz/question/148)
 
 ```cpp
 #include <iostream>
@@ -92,7 +92,7 @@ int main() {
 
 顺序不确定的对同一个内存做有 side-effect 的访问是 UB
 
-### [5](https://cppquiz.org/quiz/question/251)
+### [251](https://cppquiz.org/quiz/question/251)
 
 ```cpp
 #include <iostream>
@@ -116,7 +116,7 @@ int main() {
 
 而重载决议先考虑模版，再考虑显式特化，所以模版函数 `f(T)` 的特化 `f<>(int*)` 不被考虑
 
-### [6](https://cppquiz.org/quiz/question/242)
+### [242](https://cppquiz.org/quiz/question/242)
 
 ```cpp
 #include <iostream>
@@ -144,7 +144,7 @@ int main() {
 
 `i`: lvalue ，`T` 推导为 `int&`
 
-### [7](https://cppquiz.org/quiz/question/184)
+### [184](https://cppquiz.org/quiz/question/184)
 
 ```cpp
 #include <iostream>
@@ -166,7 +166,7 @@ int main() {
 
 派生类隐藏基类的同名函数
 
-### [8](https://cppquiz.org/quiz/question/122)
+### [122](https://cppquiz.org/quiz/question/122)
 
 ```cpp
 #include <iostream> 
@@ -190,7 +190,7 @@ int main() {
 
 有空看看[这个的3~4条](https://timsong-cpp.github.io/cppwp/n4659/dcl.spec)
 
-### [9](https://cppquiz.org/quiz/question/217)
+### [217](https://cppquiz.org/quiz/question/217)
 
 ```cpp    
 #include <iostream>
@@ -205,7 +205,7 @@ int main() {
 
 条件表达式的返回值的左右性取决于[这个的2~5条](https://timsong-cpp.github.io/cppwp/n4659/expr.cond)，本题中 `i` 是 lvalue ，`1` 是 prvalue ，返回值为 prvalue
 
-### [10](https://cppquiz.org/quiz/question/335)
+### [335](https://cppquiz.org/quiz/question/335)
 
 ```cpp
 #include <cstddef>
@@ -232,7 +232,7 @@ int main() {
 
 但是 `NULL` 的定义并不确定，可以是 `int long std::nullptr_t` 想不到吧
 
-### [11](https://cppquiz.org/quiz/question/261)
+### [261](https://cppquiz.org/quiz/question/261)
 
 ```cpp
 #include <iostream>
@@ -248,7 +248,7 @@ int main() {
 
 `stringstream` 不传参数的情况下默认从开头开始，会覆盖原有数据
 
-### [12](https://cppquiz.org/quiz/question/178)
+### [178](https://cppquiz.org/quiz/question/178)
 
 ```cpp
 #include <iostream>
@@ -261,7 +261,7 @@ int main() {
 
 对符号的识别是接受尽可能长的字符，即使可能导致剩下的符号无法识别
 
-### [13](https://cppquiz.org/quiz/question/225)
+### [225](https://cppquiz.org/quiz/question/225)
 
 ```cpp
 #include <iostream>
@@ -283,11 +283,16 @@ int main() {
 
 “所有会被识别为声明的东西都会被识别为声明”
 
-所以 `X(object)` 实际上声明了一个类型为 `X` 的 `object`
+所以 `X(object)` 实际上声明了一个类型为 `X` 的 `object`, 而不是拷贝构造了一个临时变量
 
 想不到吧
 
-### [14](https://cppquiz.org/quiz/question/233)
+> An expression-statement with a function-style explicit type conversion as its leftmost subexpression can be indistinguishable from a declaration where the first declarator starts with a (. In those cases the statement is a declaration.
+
+[src](https://timsong-cpp.github.io/cppwp/std23/stmt.ambig#1)
+
+
+### [233](https://cppquiz.org/quiz/question/233)
 
 ```cpp
 #include <type_traits>
@@ -310,7 +315,7 @@ int main() {
 
 返回值 参数列表 左右值引用修饰符 cv修饰符 异常 都是函数的一部分
 
-### [15](https://cppquiz.org/quiz/question/131)
+### [131](https://cppquiz.org/quiz/question/131)
 
 ```cpp
 #include <iostream>
@@ -333,7 +338,7 @@ int main() {
 
 `c2` 理论上是构造一个匿名对象然后拷贝或移动，但是其实被优化掉了，实际上没有拷贝或移动或析构函数被调用
 
-### [16](https://cppquiz.org/quiz/question/365)
+### [365](https://cppquiz.org/quiz/question/365)
 
 ```cpp
 #include <iostream>
@@ -361,7 +366,7 @@ int main() {
 
 这个东西似乎是为了符合 CPU 的整形运算器的字节长度而搞出来的
 
-### [17](https://cppquiz.org/quiz/question/319)
+### [319](https://cppquiz.org/quiz/question/319)
 
 ```cpp
 #include <iostream>
@@ -391,7 +396,7 @@ int main()
 
 [规范](https://timsong-cpp.github.io/cppwp/n4659/expr.cond#4)
 
-### [18](https://cppquiz.org/quiz/question/52)
+### [52](https://cppquiz.org/quiz/question/52)
 
 ```cpp
 #include <iostream>
@@ -419,7 +424,7 @@ int main() {
 
 CE ，你需要先声明 `A::createB();`
 
-[19](https://cppquiz.org/quiz/question/350)
+### [350](https://cppquiz.org/quiz/question/350)
 
 ```cpp
 #include<iostream>
@@ -474,7 +479,7 @@ R operator()(ArgTypes...) const;
 
 所以发生了一次拷贝 并且匿名变量传入了右值引用中
 
-### [20](https://cppquiz.org/quiz/question/198)
+### [198](https://cppquiz.org/quiz/question/198)
 
 ```cpp
 #include <iostream>
@@ -521,7 +526,7 @@ int f(); // extern by default
 static int sf(); // explicitly static 
 ```
 
-### [21](https://cppquiz.org/quiz/question/291)
+### [291](https://cppquiz.org/quiz/question/291)
 
 ```cpp
 #include <iostream>
@@ -677,7 +682,7 @@ C++对数组参数的处理感觉有点傻逼
 
 而 `int[]` 作为函数参数时，会在**确定每个参数的类型之后**，变为 `int*` 
 
-[159](https://cppquiz.org/quiz/question/159)
+### [159](https://cppquiz.org/quiz/question/159)
 
 ```cpp
 #include <iostream>
@@ -698,7 +703,7 @@ int main() {
 
 所有与参数相关的数值计算和负作用都会在调用之前完成
 
-[208](https://cppquiz.org/quiz/question/208)
+### [208](https://cppquiz.org/quiz/question/208)
 
 ```cpp
 #include <iostream>
@@ -726,7 +731,7 @@ int main() {
 
 `map` 在用 `[]` 访问不存在的key时会先`insert`一个，哪怕待会就赋值了
 
-[312](https://cppquiz.org/quiz/question/312)
+### [312](https://cppquiz.org/quiz/question/312)
 
 ```cpp
 #include <iostream>
@@ -761,4 +766,71 @@ int main()
 
 所以其实ce的是`c.x = 3`这句
 
+### [1](https://cppquiz.org/quiz/question/1)
 
+```cpp
+#include <iostream>
+
+template <class T> void f(T &i) { std::cout << 1; }
+
+template <> void f(const int &i) { std::cout << 2; }
+
+int main() {
+  int i = 42;
+  f(i);
+}
+```
+
+对包含模板函数的重载决议步骤如下
+
+1. 对所有模板函数做类型推导. 本例中 `T` 被推导为 `int`, 第一个函数的形参为 `int &i`
+2. 将推到成功的模板函数加入候选函数集合中
+3. 将所有同名非模板函数加入候选函数集合中
+4. 对候选函数做重载决议
+
+在其他条件都相同的情况下对于引用而言, 带有 c-v 修饰符的模板会比不带的更特化(也很好理解, `const int&` 能接受 `const int` 而 `int&` 不行), 因此重载决议挑选了第一个函数
+
+
+### [113](https://cppquiz.org/quiz/question/113)
+
+```cpp
+#include <iostream>
+
+template<typename T>
+void f(T) {
+    std::cout << 1;
+}
+
+template<>
+void f(int) {
+    std::cout << 2;
+}
+
+void f(int) {
+    std::cout << 3;
+}
+
+int main() {
+    f(0.0);
+    f(0);
+    f<>(0);
+}
+```
+
+### [228](https://cppquiz.org/quiz/question/228)
+
+```cpp
+template <typename ...Ts>
+struct X {
+  X(Ts ...args) : Var(0, args...) {}
+  int Var;
+};
+
+int main() {
+  X<> x;
+}
+```
+
+如果一个可变参数模板的每一个合法特化, 其模板参数包都必须为空, 那么程序非良构, 因此产生了一个 UB
+
+### 

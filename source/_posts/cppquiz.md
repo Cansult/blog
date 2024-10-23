@@ -514,18 +514,6 @@ extern "C" {
 
 所以出现了重复定义
 
-```cpp
-// In namespace scope or global scope.
-int i; // extern by default
-const int ci; // static by default
-extern const int eci; // explicitly extern
-static int si; // explicitly static
-
-// The same goes for functions (but there are no const functions).
-int f(); // extern by default
-static int sf(); // explicitly static 
-```
-
 ### [291](https://cppquiz.org/quiz/question/291)
 
 ```cpp

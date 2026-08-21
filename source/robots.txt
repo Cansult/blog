@@ -16,5 +16,5 @@ Disallow: /archives/
 Disallow: /lib/
 Disallow: /music/
 
-Sitemap: https://www.cansult.ga/sitemap.xml
-Sitemap: https://www.cansult.ga/baidusitemap.xml
+Sitemap: https://cansult.github.io/sitemap.xml
+Sitemap: https://cansult.github.io/baidusitemap.xml

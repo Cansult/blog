@@ -370,7 +370,7 @@ codeblock:
   # All available themes: https://theme-next.js.org/highlight/
   theme:
     light: atom-one-light
-    dark: atom-one-light
+    dark: atom-one-dark
   prism:
     light: prism
     dark: prism-dark

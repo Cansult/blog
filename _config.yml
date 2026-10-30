@@ -99,10 +99,11 @@ ignore:
 ## Themes: https://hexo.io/themes/
 theme: next
 
-markdown:
-  disable_rules:
-    - emphasis
-    - lheading
+pandoc:
+  pandocPath: 'pandoc'
+  timeout: 1000
+  args:
+    - --mathjax
 
 search:
   path: search.json

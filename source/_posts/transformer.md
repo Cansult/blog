@@ -19,13 +19,13 @@ mathjax: true
 
 $$
 \begin{flalign*}
-Q_{N \times d} &= X_{N \times d_{token}}W_{d_{token} \times d} && \\\\
-O_{N \times d} &= \mathrm{attn} = \mathrm{softmax}(\frac{QK^T}{\sqrt{d}})V && \\\\
-S_{N \times N} &= \frac{QK^T}{\sqrt{d}} && \\\\
-P_{N \times N} &= \mathrm{softmax}(S) && \\\\
-m_{N \times 1} &= \mathrm{rowmax}(S) && \\\\
-l_{N \times 1} &= \mathrm{rowsum}(\exp(S - m)) && \\\\
-O_{N \times d} &= PV && \\\\
+Q_{N \times d} &= X_{N \times d_{token}}W_{d_{token} \times d} && \\
+O_{N \times d} &= \mathrm{attn} = \mathrm{softmax}(\frac{QK^T}{\sqrt{d}})V && \\
+S_{N \times N} &= \frac{QK^T}{\sqrt{d}} && \\
+P_{N \times N} &= \mathrm{softmax}(S) && \\
+m_{N \times 1} &= \mathrm{rowmax}(S) && \\
+l_{N \times 1} &= \mathrm{rowsum}(\exp(S - m)) && \\
+O_{N \times d} &= PV && \\
 \end{flalign*}
 $$
 

@@ -6,6 +6,7 @@ tags:
   - AC 自动机
 abbrlink: 14038
 date: 2026-03-11 18:47:10
+mathjax: true
 ---
 
 一个有趣的问题, AC 能不能动态加减模板串?

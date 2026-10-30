@@ -1,10 +1,12 @@
 ---
 title: cutlass 入门
-date: 2026-09-11 19:16:15
 categories: 学习笔记
 tags:
   - C++
   - cutlass
+abbrlink: 20643
+date: 2026-09-11 19:16:15
+mathjax: true
 ---
 
 学下 cutlass, 写点总结
@@ -21,9 +23,9 @@ tags:
 
 `swizzle<B, M, S>`
 
-- B: Base \/ num_bits: 参与亦或的位的长度 (len(z) == len(y))
-- M: Mask \/ num_base: 保持不变的末尾长度, 可以看做变换中的单位长度
-- S: Shift \/ num_shift: 参与亦或的两段 bit 的距离
+- B: Base \/ `num_bits`: 参与亦或的位的长度 `(len(z) == len(y))`
+- M: Mask \/ `num_base`: 保持不变的末尾长度, 可以看做变换中的单位长度
+- S: Shift \/ `num_shift`: 参与亦或的两段 bit 的距离
 
 贴下 cutlass 中的原注释
 

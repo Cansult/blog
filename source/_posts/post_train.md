@@ -1,3 +1,14 @@
+---
+title: 后训练入门
+categories: 学习笔记
+tags:
+  - LLM
+  - Transformer
+  - 后训练
+abbrlink: 33230
+date: 2026-10-30 19:27:04
+mathjax: true
+---
 
 学后训练, 写点总结
 
@@ -52,7 +63,7 @@ $$
 
 $$
 \begin{aligned}
-& \nabla_\theta\pi_\theta(a) =\pi_\theta(a)\nabla_\theta\log\pi_\theta(a) \\
+& \nabla_\theta\pi_\theta(a) =\pi_\theta(a)\nabla_\theta\log\pi_\theta(a) \\\\
 \Rightarrow & \nabla_\theta J = \sum_a\pi_\theta(a) R(a)\nabla_\theta\log\pi_\theta(a)
 \end{aligned}
 $$
@@ -92,27 +103,20 @@ $$
 GAE: 单步的 TD 残差只看当前 token 的贡献, 不够有远见; 可以把后续的步骤也加上:
 
 $$
-\hat A_t^{\mathrm{GAE}(\gamma,\lambda)}
-=\sum_{l=0}^{T-t-1}(\gamma\lambda)^l\delta_{t+l}
+\hat A_t^{\mathrm{GAE}(\gamma,\lambda)}=\sum_{l=0}^{T-t-1}(\gamma\lambda)^l\delta_{t+l}
 $$
 
 
 PPO 的最终目标是最大化
 
 $$
-J(\phi)=
-\mathbb{E}_{x,\;y\sim\pi_\phi^{\mathrm{RL}}(\cdot|x)}
-\left[
-r_\theta(x,y)
--\beta\log\frac{\pi_\phi^{\mathrm{RL}}(y|x)}
-{\pi^{\mathrm{SFT}}(y|x)}
-\right]
-+\gamma\mathbb{E}_{z\sim D_{\mathrm{pretrain}}}
-\left[\log\pi_\phi^{\mathrm{RL}}(z)\right].
+J(\phi)=\mathbb{E}_{x,\;y\sim\pi_\phi^{\mathrm{RL}}(\cdot|x)}\left[r_\theta(x,y)-\beta\log\frac{\pi_\phi^{\mathrm{RL}}(y|x)}{\pi^{\mathrm{SFT}}(y|x)}\right]+\gamma\mathbb{E}_{z\sim D_{\mathrm{pretrain}}}\left[\log\pi_\phi^{\mathrm{RL}}(z)\right].
 $$
 
 - $r_\theta(x,y)$ 对应奖励
+
 - $\beta\log\frac{\pi_\phi^{\mathrm{RL}}(y|x)}{\pi^{\mathrm{SFT}}(y|x)}$ 用来避免偏移初始模型太远
+
 - $\gamma\mathbb{E}_{z\sim D_{\mathrm{pretrain}}}\left[\log\pi_\phi^{\mathrm{RL}}(z)\right]$ 用来避免失去预训练中的能力: $z$ 是在预训练文本中的 token 序列, 加这个的期望增加预训练中学到的序列的贡献
 
 TODO
@@ -126,41 +130,19 @@ $$
 其中:
 
 $$
-\mathcal{L}_{\text{policy}}=-\mathbb{E}_t
-\left[
-\min
-\left(
-\rho_t(\theta)\hat{A}_t,\;
-\operatorname{clip}
-\left(
-\rho_t(\theta),1-\epsilon,1+\epsilon
-\right)\hat{A}_t
-\right)
-\right]
+\mathcal{L}_{\text{policy}}=-\mathbb{E}_t\left[\min\left(\rho_t(\theta)\hat{A}_t,\;\operatorname{clip}\left(\rho_t(\theta),1-\epsilon,1+\epsilon\right)\hat{A}_t\right)\right]
 $$
 
 $$
-\rho_t(\theta)=\frac{\pi_\theta(a_t\mid s_t)}
-{\pi_{\text{old}}(a_t\mid s_t)}
+\rho_t(\theta)=\frac{\pi_\theta(a_t\mid s_t)}{\pi_{\text{old}}(a_t\mid s_t)}
 $$
 
 $$
-\mathcal{L}_{\text{value}}=
-\mathbb{E}_t
-\left[
-\left(
-V_\phi(s_t)-\hat{R}_t
-\right)^2
-\right]
+\mathcal{L}_{\text{value}}=\mathbb{E}_t\left[\left(V_\phi(s_t)-\hat{R}_t\right)^2\right]
 $$
 
 $$
-\mathcal{H}(\pi_\theta)=-\mathbb{E}_t
-\left[
-\sum_a
-\pi_\theta(a\mid s_t)
-\log\pi_\theta(a\mid s_t)
-\right]
+\mathcal{H}(\pi_\theta)=-\mathbb{E}_t\left[\sum_a\pi_\theta(a\mid s_t)\log\pi_\theta(a\mid s_t)\right]
 $$
 
 
@@ -173,9 +155,7 @@ DPO 不需要奖励模型, 直接利用对回答的偏好设计 loss, 使得模�
 我们可以发现, 模型肯定满足约束 $\sum_y \pi(y\mid x)=1$, 对 $J(\phi)$ 做 拉格朗日乘子
 
 $$
-\mathcal{L}=
-\sum_y \pi(y\mid x)r(x,y)-\beta\sum_y \pi(y\mid x)
-\log\frac{\pi(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}+\lambda\left(\sum_y \pi(y\mid x)-1\right).
+\mathcal{L}=\sum_y \pi(y\mid x)r(x,y)-\beta\sum_y \pi(y\mid x)\log\frac{\pi(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}+\lambda\left(\sum_y \pi(y\mid x)-1\right)
 $$
 
 TODO
@@ -183,22 +163,10 @@ TODO
 经过这些操作, 可以得到最终 loss:
 
 $$
-\boxed{
 \begin{aligned}
-\mathcal{L}_{\mathrm{DPO}}(\theta)
-={}&-\mathbb{E}_{(x,y_w,y_l)\sim\mathcal{D}_{\mathrm{pref}}}
-\Bigg[
-\log\sigma\Bigg(
-\beta\log\frac{\pi_\theta(y_w\mid x)}
-{\pi_{\mathrm{ref}}(y_w\mid x)}
-\\
-&\qquad\qquad
--\beta\log\frac{\pi_\theta(y_l\mid x)}
-{\pi_{\mathrm{ref}}(y_l\mid x)}
-\Bigg)
-\Bigg].
+\mathcal{L}_{\mathrm{DPO}}(\theta)={}&-\mathbb{E}_{(x,y_w,y_l)\sim\mathcal{D}_{\mathrm{pref}}}\Bigg[\log\sigma\Bigg(\beta\log\frac{\pi_\theta(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)} \\\\
+&\qquad\qquad-\beta\log\frac{\pi_\theta(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}\Bigg)\Bigg]
 \end{aligned}
-}
 $$
 
 ![PPO](../pictures/261030A.png)

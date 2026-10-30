@@ -1,11 +1,13 @@
 ---
 title: cuda 入门
-date: 2026-09-11 19:16:15
 categories: 学习笔记
 tags:
   - C++
   - cuda
   - gpu
+abbrlink: 51160
+mathjax: true
+date: 2026-09-30 19:16:15
 ---
 
 学 cuda, 写点总结

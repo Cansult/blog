@@ -99,6 +99,11 @@ ignore:
 ## Themes: https://hexo.io/themes/
 theme: next
 
+markdown:
+  disable_rules:
+    - emphasis
+    - lheading
+
 search:
   path: search.json
   field: post

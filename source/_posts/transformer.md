@@ -1,24 +1,32 @@
+---
+title: Transformer 入门
+categories: 学习笔记
+tags:
+  - LLM
+  - Transformer
+abbrlink: 17401
+date: 2026-06-30 19:27:04
+mathjax: true
+---
 
 学变形金刚, 写点总结
 
 <!--more-->
-
-
 
 ### flash attention
 
 先定义下常用变量
 
 $$
-\begin{aligned}
-Q_{N \times d} &= X_{N \times d_{token}}W_{d_{token} \times d}\\
-O_{N \times d} &= \mathrm{attn} = \mathrm{softmax}(\frac{QK^T}{\sqrt{d}})V \\
-S_{N \times N} &= \frac{QK^T}{\sqrt{d}} \\
-P_{N \times N} &= \mathrm{softmax}(S) \\
-m_{N \times 1} &= \mathrm{rowmax}(S) \\
-l_{N \times 1} &= \mathrm{rowsum}(\exp(S - m)) \\
-O_{N \times d} &= PV \\
-\end{aligned}
+\begin{flalign*}
+Q_{N \times d} &= X_{N \times d_{token}}W_{d_{token} \times d} && \\\\
+O_{N \times d} &= \mathrm{attn} = \mathrm{softmax}(\frac{QK^T}{\sqrt{d}})V && \\\\
+S_{N \times N} &= \frac{QK^T}{\sqrt{d}} && \\\\
+P_{N \times N} &= \mathrm{softmax}(S) && \\\\
+m_{N \times 1} &= \mathrm{rowmax}(S) && \\\\
+l_{N \times 1} &= \mathrm{rowsum}(\exp(S - m)) && \\\\
+O_{N \times d} &= PV && \\\\
+\end{flalign*}
 $$
 
 `safe_softmax(X)[i] = expf(X[i] - max(X)) / sum( expf( X[i] - max(X) ) )`

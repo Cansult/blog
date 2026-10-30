@@ -6,6 +6,7 @@ categories: 学习笔记
 tags:
   - Linux
   - 内存
+mathjax: true
 ---
 
 学内存, 写点总结

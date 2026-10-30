@@ -1,5 +1,5 @@
 ---
-title: 大规模 C++ 软件开发 读书笔记
+title: 《大规模 C++ 软件开发》读书笔记
 categories: 学习笔记
 tags:
   - 语言

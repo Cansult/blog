@@ -16,7 +16,7 @@ mathjax: true
 
 <!--more-->
 
-## Post Train
+# Post Train
 
 都是反向传播梯度下降那一套
 
@@ -28,7 +28,7 @@ mathjax: true
 
 长尾但重要的知识更适合扔 rag 里
 
-### SFT (*Supervised Fine-Tuning*)
+## SFT (*Supervised Fine-Tuning*)
 
 $p^*(y\mid x)$：参考分布，通常由人工示范数据隐含表示；
 
@@ -40,7 +40,7 @@ $\hat p(y\mid x)$：模型学习到的输出分布。
 
 SFT 只需要少量数据就能对模型产生重大影响: 因为 SFT 的数据针对性更强, 目标和意图更密集
 
-### RLHF (*Reinforcement Learning from Human Feedback*)
+## RLHF (*Reinforcement Learning from Human Feedback*)
 
 目标是最 (实践中不一定追求最值) 大化 $J(\theta) = \max_p \mathbb{E}_{p}[R(y,x)]$
 
@@ -51,7 +51,7 @@ GV gap: 写一篇好文章很难, 评价那篇文章好相对简单
 - reward 和 评估胜率的关系: 避免 reward hacking
 - 置信度 和 正确率的关系: 避免过度自信或者过度自卑; 可以通过调整温度在一定程度缓解
 
-#### Policy gradients
+### Policy gradients
 
 我们需要 $Loss(\theta) = -\nabla_\theta J(\theta)$, 而
 
@@ -76,7 +76,7 @@ $$
 
 蒙特卡洛法可以通过随机采样估计期望
 
-#### PPO (*Proximal Policy Optimization*)
+### PPO (*Proximal Policy Optimization*)
 
 奖励模型可以通过成对的回答和对这些回答中的哪一个的偏好训练出来
 
@@ -114,9 +114,7 @@ J(\phi)=\mathbb{E}_{x,\;y\sim\pi_\phi^{\mathrm{RL}}(\cdot|x)}\left[r_\theta(x,y)
 $$
 
 - $r_\theta(x,y)$ 对应奖励
-
 - $\beta\log\frac{\pi_\phi^{\mathrm{RL}}(y|x)}{\pi^{\mathrm{SFT}}(y|x)}$ 用来避免偏移初始模型太远
-
 - $\gamma\mathbb{E}_{z\sim D_{\mathrm{pretrain}}}\left[\log\pi_\phi^{\mathrm{RL}}(z)\right]$ 用来避免失去预训练中的能力: $z$ 是在预训练文本中的 token 序列, 加这个的期望增加预训练中学到的序列的贡献
 
 TODO
@@ -145,8 +143,9 @@ $$
 \mathcal{H}(\pi_\theta)=-\mathbb{E}_t\left[\sum_a\pi_\theta(a\mid s_t)\log\pi_\theta(a\mid s_t)\right]
 $$
 
+![PPO](../pictures/261030A.png)
 
-#### DPO (*Direct Preference Optimization*)
+### DPO (*Direct Preference Optimization*)
 
 PPO 太复杂了, 考虑如何优化
 
@@ -169,8 +168,58 @@ $$
 \end{aligned}
 $$
 
-![PPO](../pictures/261030A.png)
+### GRPO (*Group Relative Policy Optimization*)
 
-#### GRPO (*Group Relative Policy Optimization*)
+![GRPO](../pictures/261031A.png)
 
+主要关注 Advantage (标准化优势): 
 
+$$
+A_i=\frac{r_i-\operatorname{mean}(r_1,\ldots,r_G)} {\operatorname{std}(r_1,\ldots,r_G)}
+$$
+
+$r_i$：同一个 prompt 中, 采样的第 $i$ 个回答的奖励
+
+好像就是扔掉了 Critic, 然后利用一组回答的奖励平均数, 用作 Critic 中 baseline 的功能; 然后扔掉了 Critic 对于每个 token 贡献的部分
+
+只能说实践来看跑的挺好, 也许区分哪个 token 贡献确实没那么重要
+
+#### baseline
+
+baseline 的作用很简单, 我们判断一个输出的好坏得有个比较的基准
+
+![baseline](../pictures/261031B.png)
+
+其中:
+
+- $s$: 当前状态
+- $a$: 采取的动作
+- $G_t$: $t$ 时刻后的所有奖励的折扣和
+- $q_\pi(s, a)$: 如果当前状态是 $s$, 时间是 $t$, 采取的行动是 $a$, 那么 $q_\pi(s, a) = G_{t + 1}$
+
+啊哈, 想不到吧, 其实对于期望来说什么 baseline 都行, 只要和 $a$ 无关就行 (无关的情况下, 对分布求导后是 0)
+
+**那为什么要用组内平均数?**
+
+可以降低梯度的方差:
+
+$$
+g=G_t\nabla_\theta\log\pi_\theta(A_t\mid S_t) \\
+g'=(G_t-b(S_t)) \nabla_\theta\log\pi_\theta(A_t\mid S_t)
+$$
+
+令 $z=\nabla_\theta\log\pi_\theta(A\mid s)$, 则
+
+$$
+\operatorname{Var}(g') =\mathbb E[(G-b)^2\|z\|^2] -\|\mathbb E[g]\|^2
+$$
+
+期望不变, 减小方差只能减小 $\mathbb E[(G-b)^2\|z\|^2]$, 取 $b$ 是平均数就很合理了
+
+**那为什么还要除以 std?**
+
+可以提高过简单或者过困难问题 (过简单问题答错的采样占比过少, 过困难问题答对的采样占比过少, 这些离群都会导致标准差变小) 的权重
+
+可以在训练到后期时偏差都不大的时候还能有效训练?
+
+TODO

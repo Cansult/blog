@@ -68,7 +68,7 @@ $$
 \end{aligned}
 $$
 
-$pi_theta(a)$ 是 $a$ 在模型 $\theta$ 出现的概率, 可以将 $\nabla_\theta$ 看做一个期望
+$\pi_\theta(a)$ 是 $a$ 在模型 $\theta$ 出现的概率, 可以将 $\nabla_\theta J$ 看做一个期望
 
 $$
 \nabla_\theta J = \mathbb E_{a\sim\pi_\theta} \left[R(a)\nabla_\theta\log\pi_\theta(a)\right]
@@ -172,7 +172,7 @@ $$
 
 ![GRPO](../pictures/261031A.png)
 
-主要关注 Advantage (标准化优势): 
+主要关注 Advantage: 
 
 $$
 A_i=\frac{r_i-\operatorname{mean}(r_1,\ldots,r_G)} {\operatorname{std}(r_1,\ldots,r_G)}
@@ -183,6 +183,8 @@ $r_i$：同一个 prompt 中, 采样的第 $i$ 个回答的奖励
 好像就是扔掉了 Critic, 然后利用一组回答的奖励平均数, 用作 Critic 中 baseline 的功能; 然后扔掉了 Critic 对于每个 token 贡献的部分
 
 只能说实践来看跑的挺好, 也许区分哪个 token 贡献确实没那么重要
+
+至于 $\frac{\pi_\theta}{\pi_{\theta_{old}}}$: 主要是因为一次 rollout 可能要生成大量 Response, 每更新一遍参数就重跑 rollout 的代价太大, 所以可能在反向传播几次后才重新生成一遍 Response; 这相当于用老模型的回答计算新模型的 Advantage, 需要乘上这么一个比值来做修正
 
 #### baseline
 
@@ -201,7 +203,18 @@ baseline 的作用很简单, 我们判断一个输出的好坏得有个比较的
 
 **那为什么要用组内平均数?**
 
-可以降低梯度的方差:
+考虑两种动作 $a_1, a_2$, 在 两种状态 $s_1, s_2$ 下的奖励分别是
+
+| 状态  | 动作  | Reward |
+| ----- | ----- | ------ |
+| $s_1$ | $a_1$ | 11     |
+| $s_1$ | $a_2$ | 9      |
+| $s_2$ | $a_1$ | 0      |
+| $s_2$ | $a_2$ | 2      |
+
+$s_1$ 下的 $a_1$ 奖励太高 (梯度的方差太大) 了, 传播后可能导致模型在 $s_2$ 的状态下也偏向 $a_1$
+
+考虑怎么降低梯度的方差:
 
 $$
 g=G_t\nabla_\theta\log\pi_\theta(A_t\mid S_t) \\
@@ -214,12 +227,22 @@ $$
 \operatorname{Var}(g') =\mathbb E[(G-b)^2\|z\|^2] -\|\mathbb E[g]\|^2
 $$
 
-期望不变, 减小方差只能减小 $\mathbb E[(G-b)^2\|z\|^2]$, 取 $b$ 是平均数就很合理了
+期望不变, 减小方差只能减小 $\mathbb E[(G-b)^2\|z\|^2]$, 理论最优的 $b$ 应该是个加权平均数, 
 
-**那为什么还要除以 std?**
+$$
+\frac{\mathbb E[G\|z\|^2\mid s]}{\mathbb E[\|z\|^2\mid s]}
+$$
 
-可以提高过简单或者过困难问题 (过简单问题答错的采样占比过少, 过困难问题答对的采样占比过少, 这些离群都会导致标准差变小) 的权重
+工程中使用的还是普通平均数, 就当每个回答的 $\|z\|$ 都一样了
+
+**那为什么还要除以 stdev?**
+
+可以提高过简单或者过困难问题 (过简单问题答错的采样占比过少, 过困难问题答对的采样占比过少, 这些离群都会导致标准差变小) 的权重?
 
 可以在训练到后期时偏差都不大的时候还能有效训练?
 
-TODO
+或者也许不需要这个也行?
+
+Dr. GRPO 就没有除 stdev, 效果似乎差球不多
+
+

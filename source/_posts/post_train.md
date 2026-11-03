@@ -53,13 +53,15 @@ GV gap: 写一篇好文章很难, 评价那篇文章好相对简单
 
 ### Policy gradients
 
-我们需要 $Loss(\theta) = -\nabla_\theta J(\theta)$, 而
+我们更新模型参数所需要的 $\nabla_\theta Loss(\theta) = -\nabla_\theta J(\theta)$, 而
 
 $$
 \nabla_\theta J(\theta) =\sum_a R(a)\nabla_\theta\pi_\theta(a)
 $$
 
-计算导数需要知道每个 $a$ 的概率, 期望的可能选择太多, 无法直接计算
+(奖励和模型参数无关)
+
+直接计算需要知道所有 $a$ 的概率和奖励, 要遍历的太多, 无法直接计算
 
 $$
 \begin{aligned}

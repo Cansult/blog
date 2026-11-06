@@ -5,11 +5,13 @@ tags:
   - LLM
   - Transformer
 abbrlink: 17401
-date: 2026-06-30 19:27:04
+date: 2026-11-02 19:27:04
 mathjax: true
 ---
 
 学变形金刚, 写点总结
+
+哎 怎么突然好想就要被时代碾死了
 
 <!--more-->
 
@@ -150,6 +152,21 @@ $$
 ### 激活函数
 
 太多了, 是因为好水论文吗
+
+### MoE
+
+一个大 FFN 效率太低了, 拆成多个, 由 router 判断每个 token 用哪(些)个专家, 然后合并结果
+
+好像还有对 attn 搞 MoE 的, 比较少
+
+共享专家: 每个 token 都经过的大 FFN; 实测似乎没什么效果
+
+#### router
+
+- topK: 每个模型一个可训练的向量, 每个 token 和这个向量做运算得出权重, 挑出 top K 个专家, softmax 权重; 然后每个专家的结果对权重加权求和
+- hash: 战力计算单位
+- RL to learn routes: 现在没什么人用了
+- 整体分派: 把一组 token 看做一个整体, 让整体的分数尽可能高
 
 
 ## 位置编码
@@ -295,4 +312,37 @@ $$
 
 这个过程中对位置编码有一些要求
 
-#### Sparse / sliding window attention
+#### Sparse attention
+
+#### Sliding window attention
+
+#### Linear attention
+
+$attn = \rho(QK^T)V$
+
+attention 计算和空间大主要都是因为 $Q_{n\times d}K^T$ 得出来的那个 $n\times n$ 大矩阵
+
+如果 $\rho$ 是恒等变化, $(QK^T)V = Q(K^TV)$, 就简单多了 ($2nd_kd_v$)
+
+还有更好的性质: 考虑 $O$ 每一行 (也就是每个 token) $o_t$ 的计算过程
+
+(学术上一般把 $q_t$ 看做 $Q$ 的第 $t$ 行的**列**表示, $q_t^T$ 才代表 $Q$ 的某一行, $k_t, v_t$ 同理; 我感觉有点扯淡, 下文还是直接用 $q_t$ 代表第 $t$ 行)
+
+$$
+\begin{aligned}
+s_t &= \frac{1}{\sqrt{d}}(QK^T)_t = \frac{1}{\sqrt{d}}(q_tK^T) \\
+o_t &= \frac{1}{\sqrt{d}}s_tV \\
+&= \frac{1}{\sqrt{d}}\begin{bmatrix} q_tk_1^T & \cdots & q_tk_N^T \end{bmatrix} \begin{bmatrix} v_1\\ \vdots\\ v_N \end{bmatrix} \\
+&= \frac{1}{\sqrt{d}}\sum_{i=1}^{N}(q_tk_i^T)v_i \\
+&= \frac{1}{\sqrt{d}}q_t\sum_{i=1}^{N}k_i^Tv_i
+\end{aligned}
+$$
+
+我们设 $S_t = \sum_{i=1}^{t}k_i^Tv_i$, 则 $o_t = \frac{1}{\sqrt{d}}q_tS_t$, 且 $S_t = S_{t - 1} + k_t^Tv_t$
+
+有点像 RNN
+
+可以加一点遗忘: $S_t = \gamma S_{t - 1} + k_t^Tv_t$
+
+一般把线性注意力和全注意力掺和着用, 效果差的不会太大
+

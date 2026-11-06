@@ -312,11 +312,7 @@ $$
 
 这个过程中对位置编码有一些要求
 
-#### Sparse attention
-
-#### Sliding window attention
-
-#### Linear attention
+### Linear attention
 
 $attn = \rho(QK^T)V$
 
@@ -345,4 +341,8 @@ $$
 可以加一点遗忘: $S_t = \gamma S_{t - 1} + k_t^Tv_t$
 
 一般把线性注意力和全注意力掺和着用, 效果差的不会太大
+
+### Sparse attention
+
+### Sliding window attention
 

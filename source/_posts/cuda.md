@@ -14,29 +14,59 @@ date: 2026-09-30 19:16:15
 
 <!--more-->
 
-## 硬件
+# 硬件
 
-### 抽象
+## 抽象
 
 
 
-## 优化
+# 优化
 
-### 合并内存访问
+## 合并内存访问
 
-### 平铺
+## 平铺
 
-### 线程粗化
+## 线程粗化
 
-## 应用
+## 多卡并行
 
-### 规约
+![nv](../pictures/261109A.png)
 
-### 归并
+### 分布式训练
 
-### 前缀和
+#### 数据并行
 
-#### Kogge-Stone
+每张卡都有完整的模型, 对要处理的输入进行切分
+
+比如并行处理不同 batch
+
+相对简单点, 处理不了参数太大的情况
+
+在训练的时候通常只需要最后算梯度的时候 all reduce 一次
+
+#### 张量并行
+
+每张卡的存模型的一部分, 对参数矩阵本身切分
+
+比如矩阵乘法 $XW$ 就可以把 $W$ 按列切分, 结果为 $\mathrm{Concat}(XW_0, XW_1, \dots XW_{\mathrm{size}(world) - 1})$
+
+模型每层依赖上一层的结果, 所以每层结束都要 all gather 一次
+
+#### 流水线并行
+
+每张卡存模型的一部分层, 按层切分
+
+可以通过重叠通信和计算来消除流水线气泡
+
+# 应用
+
+## 规约
+
+## 归并
+
+## 前缀和
+
+### Kogge-Stone
 
 没什么好说的, 和树形规约看上去挺像的, 区别在于每次迭代参与的线程是哪些: 规约在每一轮都把一半的数据计算贡献后抛弃, 而前缀和是每一轮计算完成计算完成了前 $2^{offset}$ 的前缀和, 但是不抛弃这些数据, 后续仍会用到
 
@@ -72,7 +102,7 @@ __global__ void Kogge_Stone_scan_kernel(float *X, float *Y, unsigned int N){
 
 而且受制于显示中资源的限制, `SECTION_SIZE` 不可能太大, 效率还会进一步下降
 
-#### Brent-Kung
+### Brent-Kung
 
 我们实际上无用计算了很多部分, 尤其是 `stride` 小而 `i` 大的部分
 
@@ -124,11 +154,11 @@ __syncthreads();
 Brent-Kung 主要减少的是计算次数, 可能使用于限制能耗的场景; 单纯的计算时间可能不如 Kogge-Stone, 毕竟要做两遍计算
 
 
-### SpMV (*Sparse Matrix-Vector Multiplication*)
+## SpMV (*Sparse Matrix-Vector Multiplication*)
 
 一个稀疏矩阵乘一个向量, 一般认为这个向量是稠密的
 
-#### COO (*COOrdinate*)
+### COO (*COOrdinate*)
 
 最简单的形式, 坐标表 `row[n], col[n], val[n]` 记录稀疏矩阵中非 0 位置的坐标和值. 并行处理非 0 值
 
@@ -152,7 +182,7 @@ __global__ void SpMV_COO(const coo* matrix, const float* x, float* y) {
 - 由于相同行的值会在不同线程累加到同一个位置, 需要额外的原子操作开销
 
 
-#### CSR (*Compressed Sparse Row*)
+### CSR (*Compressed Sparse Row*)
 
 将坐标按所属的行分类. 并行处理所有行, 一行的内容在一个线程内处理, 避免原子操作的开销
 
@@ -177,7 +207,7 @@ __global__ void SpMV_CSR(const csr* matrix, const float* x, float* y) {
 - 控制发散: 取决于一个 warp 内不同行间非 0 列的长度差异
 - 内存访问: 非合并
 
-#### ELL (*ELLPACK 中使用的 SpMV 实现方式*)
+### ELL (*ELLPACK 中使用的 SpMV 实现方式*)
 
 将坐标按所属行分组后, 将所有行填充 0 至最长的那一行; 而后存储为列主序的数组; 并行处理所有行
 
@@ -205,13 +235,13 @@ __global__ void SpMV_ELL(const ell* matrix, const float* x, float* y) {
 - 控制发散: 取决于一个 warp 内不同行间非 0 列的长度差异
 - 内存访问: 合并
 
-#### ELL-COO
+### ELL-COO
 
 注意到在有几列相当长的情况下, 填充会带来相当大的内存浪费, 我们可以把超过阈值的几行多出来的部分使用 COO 来存储; 其他部分依旧使用 ELL
 
 ![ELL-COO](../pictures/2610082.png)
 
-#### JDS (*Jagged Diagonal Storage*)
+### JDS (*Jagged Diagonal Storage*)
 
 JDS 将不同行按照包含的非 0 列的多少进行排序, 并行处理所有行; 通过排序, 一个 warp 内不同行间的非 0 列长度基本是相近的, 可以减少控制发散; 改为列主序也是为了合并内存访问
 
@@ -221,7 +251,7 @@ JDS 将不同行按照包含的非 0 列的多少进行排序, 并行处理所�
 
 排序的消耗可能比较大, 更适合多次使用这一矩阵的情景
 
-### BFS
+## BFS
 
 有并行处理顶点 \/ 边 \/ bfs 队列的
 

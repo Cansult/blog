@@ -67,64 +67,6 @@ def train_bpe(string: str, num_merges: int) -> BPETokenizerParams:  # @inspect s
     return BPETokenizerParams(vocab=vocab, merges=merges)
 ```
 
-# 学习
-
-## Init
-
-对于 $y = x_{d}W_{d\times d}$, 假设 $x_i\sim \mathcal{N}(0,1), \, W_{ij}\sim \mathcal{N}(0,1)$ 且相互独立
-
-由 $\operatorname{Var}(aX+bY)=a^2\operatorname{Var}(X)+b^2\operatorname{Var}(Y)$ 和 $\operatorname{Var}(XY) =E[X^2Y^2]-(E[XY])^2$
-
-$$
-\begin{aligned}
-\operatorname{Var}(y_j)
-&=\operatorname{Var}\left(\sum_{i=1}^{d}x_iW_{ij}\right)\\
-&=\sum_{i=1}^{d}\operatorname{Var}(x_iW_{ij})\\
-&=d\\
-\operatorname{Std}(y_j)&=\sqrt{d}
-\end{aligned}
-$$
-
-为了避免方差随维数增长而增长导致的梯度不稳定, 初始化的时候一般会使用 `w = nn.Parameter(torch.randn(input_dim, output_dim) / np.sqrt(input_dim))`
-
-Attn 中的分母原因也是类似的
-
-## 反向传播
-
-- 总得来说就是保存计算图, 然后链式法则, 基础操作查表
-
-- 一般认为反向传播的计算量是前向的两倍:
-
-    对于线性层 $Y=XW$, 前向传播需要一次矩阵乘法, 而反向传播需要两次矩阵乘法: 
-    
-    $$
-    \begin{aligned}
-    \frac{\partial L}{\partial W}&=X^T\frac{\partial L}{\partial Y}\\
-    \frac{\partial L}{\partial X}&=\frac{\partial L}{\partial Y}W^T
-    \end{aligned}
-    $$
-    
-    其实主要就是前一层的梯度计算需要这一层的 $\frac{\partial L}{\partial X}$, 所以得多算一个
-
-## 优化器
-
-没什么好说的, 主要就是要避免震荡和学不了东西
-
-- SGD (*Stochastic Gradient Descent*): $\theta_{t+1}=\theta_t-\eta g_t$, 随机指的是 Loss 是由随机抽取的样本得出的
-- Momentum: 令 $v_t=\beta v_{t-1}+g_t$, 更新: $\theta_{t+1}=\theta_t-\eta v_t$
-- AdaGrad: 令 $G_t=G_{t-1}+g_t^2$, 更新: $\theta_{t+1} = \theta_t- \frac{\eta}{\sqrt{G_t}+\epsilon}g_t$
-- RMSProp: 令 $s_t=\beta s_{t-1}+(1-\beta)g_t^2$, 更新: $\theta_{t+1} = \theta_t- \frac{\eta}{\sqrt{s_t}+\epsilon}g_t$
-- Adam:
-$$
-\begin{aligned}
-m_t&=\beta_1m_{t-1}+(1-\beta_1)g_t\\
-v_t&=\beta_2v_{t-1}+(1-\beta_2)g_t^2\\
-\hat m_t&=\frac{m_t}{1-\beta_1^t}\\
-\hat v_t&=\frac{v_t}{1-\beta_2^t}\\
-\theta_{t+1} &= \theta_t- \eta\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}
-\end{aligned}
-$$ 
-
 # 残差网络
 
 学差值 $H(x) - x$ 比直接学目标值 $H(x)$ 效果好
@@ -136,7 +78,7 @@ $$
 
 传统 postNorm 放在残差 $H(x)$ 和 $x$ 相加之后, 现在基本都使用 preNorm: 放在进入 $H(x)$ 之前
 
-![post or pre Norm](../pictures/261105A.png)
+[post or pre Norm](../pictures/261105A.png)
 
 好处是避免像 postNorm 一样层数多的时候求梯度时会出现多个矩阵连乘可能导致的梯度问题 $\frac{\partial x_L}{\partial x_0} = \prod_{l=0}^{L-1} J_{\operatorname{LN},l}(I+J_{F,l})$, 坏处是 $x$ 本身不经过 Norm
 
@@ -345,4 +287,95 @@ $$
 ### Sparse attention
 
 ### Sliding window attention
+
+# 训练
+
+## Init
+
+对于 $y = x_{d}W_{d\times d}$, 假设 $x_i\sim \mathcal{N}(0,1), \, W_{ij}\sim \mathcal{N}(0,1)$ 且相互独立
+
+由 $\operatorname{Var}(aX+bY)=a^2\operatorname{Var}(X)+b^2\operatorname{Var}(Y)$ 和 $\operatorname{Var}(XY) =E[X^2Y^2]-(E[XY])^2$
+
+$$
+\begin{aligned}
+\operatorname{Var}(y_j)
+&=\operatorname{Var}\left(\sum_{i=1}^{d}x_iW_{ij}\right)\\
+&=\sum_{i=1}^{d}\operatorname{Var}(x_iW_{ij})\\
+&=d\\
+\operatorname{Std}(y_j)&=\sqrt{d}
+\end{aligned}
+$$
+
+为了避免方差随维数增长而增长导致的梯度不稳定, 初始化的时候一般会使用 `w = nn.Parameter(torch.randn(input_dim, output_dim) / np.sqrt(input_dim))`
+
+Attn 中的分母原因也是类似的
+
+## 反向传播
+
+- 总得来说就是保存计算图, 然后链式法则, 基础操作查表
+
+- 一般认为反向传播的计算量是前向的两倍:
+
+    对于线性层 $Y=XW$, 前向传播需要一次矩阵乘法, 而反向传播需要两次矩阵乘法: 
+    
+    $$
+    \begin{aligned}
+    \frac{\partial L}{\partial W}&=X^T\frac{\partial L}{\partial Y}\\
+    \frac{\partial L}{\partial X}&=\frac{\partial L}{\partial Y}W^T
+    \end{aligned}
+    $$
+    
+    其实主要就是前一层的梯度计算需要这一层的 $\frac{\partial L}{\partial X}$, 所以得多算一个
+
+## 优化器
+
+没什么好说的, 主要就是要避免震荡和学不了东西
+
+- SGD (*Stochastic Gradient Descent*): $\theta_{t+1}=\theta_t-\eta g_t$, 随机指的是 Loss 是由随机抽取的样本得出的
+- Momentum: 令 $v_t=\beta v_{t-1}+g_t$, 更新: $\theta_{t+1}=\theta_t-\eta v_t$
+- AdaGrad: 令 $G_t=G_{t-1}+g_t^2$, 更新: $\theta_{t+1} = \theta_t- \frac{\eta}{\sqrt{G_t}+\epsilon}g_t$
+- RMSProp: 令 $s_t=\beta s_{t-1}+(1-\beta)g_t^2$, 更新: $\theta_{t+1} = \theta_t- \frac{\eta}{\sqrt{s_t}+\epsilon}g_t$
+- Adam:
+$$
+\begin{aligned}
+m_t&=\beta_1m_{t-1}+(1-\beta_1)g_t\\
+v_t&=\beta_2v_{t-1}+(1-\beta_2)g_t^2\\
+\hat m_t&=\frac{m_t}{1-\beta_1^t}\\
+\hat v_t&=\frac{v_t}{1-\beta_2^t}\\
+\theta_{t+1} &= \theta_t- \eta\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}
+\end{aligned}
+$$ 
+
+## Scaling law
+
+一个经验公式, 可以用小模型的经验估算大模型的一些特征: 例如需要多少数据、超参数的取值、目标能否靠放大规模解决
+
+$$
+L(N)=L_{\infty}+\frac{A}{N^\alpha}
+$$
+- $L(N)$: 使用 $N$ 个训练样本时的测试损失
+- $L_{infty}$: 数据量趋于无穷时的理论损失下限
+- $A$: 模型、数据质量等决定的常数系数
+- $\alpha$: 模型、数据质量等决定的常数指数, 也叫缩放指数
+
+### 可能的解释
+
+和概率论比较相关 TODO
+
+# 推理
+
+- Symbols denote dimensions (and their length): B (batch), T (sequence), D (model dim), H (head dim)
+    - Example: $\mathrm{BT\textcolor{red}{D} \times \textcolor{red}{D}H \rightarrow BTH}$
+- <font color=#b11d23>Contracting (red)</font> dimensions appear in both operands and disappear from result
+- Regular (black) dimensions appear in one operand and stay in result
+    - Example: $\mathrm{\textcolor{blue}{B}\textcolor{red}{D}\times\textcolor{blue}{B}\textcolor{red}{D}\rightarrow B}$
+- <font color="#0000FF">Batching (blue)</font> dimensions appear in both operands and stay in result
+
+![decode](../pictures/261109B.png)
+
+Conventions:
+- F = 4 D (MLP up-projects into 4x the model dimension)
+- D = N H (model dimension split across N heads)
+- N = K G (for GQA, number of heads split across K groups)
+- S = T (during training, condition on S input tokens to predict T output tokens)
 

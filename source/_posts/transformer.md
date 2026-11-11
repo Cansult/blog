@@ -153,15 +153,6 @@ $$
 
 $K_{N \times d}$ 按 $N$ 方向分片后, $K^T$ 被分成了横向的几块, 每一列是被完整保存的
 
-```
-          K^T
-     ┌────┬────┬────┬─────┐
-     │    │    │    │     │
-     │  1 │  2 │ .. │ T_c │
-     │    │    │    │     │
-     └────┴────┴────┴─────┘
-```
-
 $Q_{N\times d} \times K^T_i$ 是最终 $Q \times K^T$ 的一部分, 在经过**全局** softmax 处理后, 这部分 乘上 $V_i$ 就是 $O_{N\times d}$ 的一部分贡献
 
 (当然每次循环的时候我们是没有全局 softmax 的, 所以需要 online softmax 的技术去算贡献)
@@ -353,6 +344,7 @@ $$
 $$
 L(N)=L_{\infty}+\frac{A}{N^\alpha}
 $$
+
 - $L(N)$: 使用 $N$ 个训练样本时的测试损失
 - $L_{infty}$: 数据量趋于无穷时的理论损失下限
 - $A$: 模型、数据质量等决定的常数系数
@@ -374,6 +366,7 @@ $$
 ![decode](../pictures/261109B.png)
 
 Conventions:
+
 - F = 4 D (MLP up-projects into 4x the model dimension)
 - D = N H (model dimension split across N heads)
 - N = K G (for GQA, number of heads split across K groups)

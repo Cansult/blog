@@ -78,7 +78,7 @@ def train_bpe(string: str, num_merges: int) -> BPETokenizerParams:  # @inspect s
 
 传统 postNorm 放在残差 $H(x)$ 和 $x$ 相加之后, 现在基本都使用 preNorm: 放在进入 $H(x)$ 之前
 
-[post or pre Norm](../pictures/261105A.png)
+![post or pre Norm](../pictures/261105A.png)
 
 好处是避免像 postNorm 一样层数多的时候求梯度时会出现多个矩阵连乘可能导致的梯度问题 $\frac{\partial x_L}{\partial x_0} = \prod_{l=0}^{L-1} J_{\operatorname{LN},l}(I+J_{F,l})$, 坏处是 $x$ 本身不经过 Norm
 

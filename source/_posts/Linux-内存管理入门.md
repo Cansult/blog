@@ -23,7 +23,7 @@ word line: 这个 row 的控制线, 可以决定哪些行接入 bitline
 
 bitline: 一列 cell 的控制线
 
-**bank**: word line $\times$ bit line 形成的 cell 矩阵
+**bank**: word lines $\times$ bit lines 形成的 cell 矩阵, 可以独立激活、读写、预充电
 
 row buffer: bank 每次读取的时候会先激活一整个 row, 再取出需要的列
 

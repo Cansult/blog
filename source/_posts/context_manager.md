@@ -3,6 +3,7 @@ title: dsh context manager 插件开发笔记
 categories: 开发笔记
 tags:
   - LLM
+abbrlink: 49936
 date: 2026-11-12 19:27:04
 ---
 

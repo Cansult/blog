@@ -127,10 +127,12 @@ $$
 $$
 
 限制因素: 
+
 1. Register File
 2. Shared Memory
 3. 最大 Resident Blocks
 4. 最大 Resident Warps
+
 
 就是让 SM 的候选 warp 尽可能多, 方便 SM 随时可以切另一个就绪 warp 掩盖访存时间
 

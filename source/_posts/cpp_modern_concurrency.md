@@ -5,6 +5,7 @@ tags:
   - C++
   - 并发
 mathjax: true
+abbrlink: 41633
 date: 2026-11-17 19:16:15
 ---
 

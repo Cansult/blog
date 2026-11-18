@@ -186,7 +186,7 @@ __global__ void matrix_multiplication_kernel(const float* A, const float* B, flo
 
 shared memory 组织的比较对程序员透明, 这种组织形式决定了一个 bank 在一个 cycle 只能提供 4 byte (硬件决定, 但是现在一般就是 4 byte)
 
-属于哪个 bank 就是算 $\text{bank\_id} = \left(\frac{\text{byte\_address}}{4}\right)\bmod 32 = \text{word\_index} \bmod 32$
+属于哪个 bank 就是算 $\text{bank\_id} = \left(\frac{\text{byte\_address}}{4}\right) = \text{word\_index} \bmod 32$
 
 ```
 byte addr: 

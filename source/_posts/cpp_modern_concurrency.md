@@ -114,7 +114,7 @@ namespace std
     bool done() const; // 判断是否完成
 
     void resume(); // 恢复 
-    void destroy(); // 销毁
+    void destroy(); // 销毁, 一般是 RAII 自动管理的
 
     void* address() const;
     static coroutine_handle from_address(void* address); // 中 promise 中找回 handle: 同一个协程的 promise 和 handle 在同一个协程帧中, 地址偏移是确定的
@@ -160,7 +160,7 @@ namespace std
       decltype(awaiter.await_suspend(handle_t::from_promise(promise)));
 
     // <suspend-coroutine>
-    // 这里编译器会生成代码来保存协程当前状态并为其恢复做好准备，包括存储 <resume-point> 的位置，以及把当前寄存器中持有的值溢出写入协程帧内存。
+    // 挂起, 这里编译器会生成代码来保存协程当前状态并为其恢复做好准备，包括存储 <resume-point> 的位置，以及把当前寄存器中持有的值溢出写入协程帧内存。
 
     if constexpr (std::is_void_v<await_suspend_result_t>) // 是 void, 一定挂起
     {
@@ -185,6 +185,44 @@ namespace std
   return awaiter.await_resume();
 }
 ```
+
+{% note info %}
+
+可以注意到 `await_suspend` 是在 协程挂起之后, 转移控制权之前 调用的
+
+有一种 trick 用法是 `Awaiter` 对象在协程已经挂起之后才启动异步操作, 并把已挂起协程的 `coroutine_handle` 传给该操作; 操作完成时 (可能在另一个线程上), 它可以直接安全地恢复协程, 不需要任何额外的同步
+
+这种用法需要注意: 在传递完 handle 后, `await_suspend` 就要避免访问 `this` 和 promise; 因为在 交出 handle 之后, `await_suspend` 结束之前, 协程就可能已经恢复了, 这时整个 `Awaiter` 对象都已经被析构了
+还是太 trick 了, 尽量少用
+
+```
+Time     Thread 1                           Thread 2
+  |      --------                           --------
+  |      ....                               Call OS - Wait for I/O event
+  |      Call await_ready()                    |
+  |      <await-ready>                         |
+  |      Call await_suspend(handle)            |
+  |        Store handle in operation           |
+  V        Start AsyncFileRead ---+            V
+                                  +----->
+                                            Load coroutine_handle from operation
+                                            Call handle.resume()
+
+                                              Call to await_resume()
+                                              execution continues....
+           Call to AsyncFileRead returns
+         Call to await_suspend() returns
+```
+
+有栈协程就很难做到这一点: 大部分有栈协程框架中, 一个协程的挂起操作与另一个协程的恢复被合并成一次 "上下文切换" 操作; 在这种 "上下文切换" 操作中, 通常没有机会在挂起当前协程之后、把执行权转移给另一个协程之前执行逻辑
+
+如果我们想在有栈协程之上实现类似的异步文件读操作, 就必须在挂起协程*之前*启动操作
+
+因此, 操作有可能在协程挂起、具备恢复资格之前就在另一个线程上完成。操作在另一个线程完成与协程挂起之间的这种潜在竞争, 需要某种线程同步来仲裁并决定胜者。
+
+[参考](https://lewissbaker.github.io/2017/11/17/understanding-operator-co-await#synchronisation-free-async-code)
+
+{% endnote %}
 
 - `co_yield`:
 - `co_return`: 

@@ -4,6 +4,7 @@ categories: 学习笔记
 tags:
   - 语言
   - rust
+abbrlink: 63497
 date: 2026-02-15 19:27:04
 ---
 

@@ -6,6 +6,7 @@ tags:
   - Authorization
   - SSO
 mathjax: true
+abbrlink: 65325
 date: 2025-10-22 19:16:15
 ---
 

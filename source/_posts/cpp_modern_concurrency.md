@@ -85,22 +85,83 @@ struct FooFrame {
 
 ## 常见实现
 
-### goroutine
-
-### bthread
-
-### python
-
 ### cpp20:
 
 哎我靠 cpp 怎么这么自由
 
-除了内部的状态, 协程还需要: 
+一般来说, C++ 启动协程后立刻返回这个协程的 handle (或者能获取 promise 的任何东西), 通过 promise 获取实际执行完成的返回值
 
-- promise 类 (不是 `std::promise`)
-- handle 类 (继承 `coroutine_handle<yourPromise>`): 可以让我们操作协程
+之所以是一般来说, 是因为 C++ 是自由的
 
-大概会长这样:
+在 C++ 看来, 协程就是函数体包含 `co_await`, `co_yield`, `co_return` 关键字之一的函数
+
+#### promise
+
+(不是 `std::promise`, 但是在典型协程中使用方式是相似的)
+
+promise 实例的一些方法会在协程调用的一些时机被调用, 用来控制协程的行为; 一些 `co_` 操作的一部分会被编译器替换为对 promise 成员函数的调用:
+
+```cpp
+struct promise
+{
+    // 必须实现: 
+    some_handle get_return_object() { return /*{some_handle::from_promise(*this)};*/ } // 返回协程调用者看到的返回对象, 就是调用后立刻返回的那个
+    some_awaiter initial_suspend() noexcept { return {}; } // 返回协程创建后的挂起操作
+    some_awaiter final_suspend() noexcept { return {}; } // 返回协程执行结束时的挂起操作
+    void return_void(void) {} // 或者 void return_value(foo_T); 设置协程通过 co_return 返回的返回值; 理论上如果没有 co_return 就不需要这个函数, 但是所有 coroutine 如果没有显式 co_return 都会在末尾添加一个隐式的 co_return, 所以省不掉的
+    void unhandled_exception() {} // 异常处理, 协程体中的异常没有被内部捕获时调用
+
+
+    // 可选实现:
+    some_awaiter yield_value(foo_T) {} // 返回协程 yield 的结果
+    auto await_transform(some_T&& value); // 可以在进入 co_await <expr> 处理之前, 改写 <expr>
+    static some_handle get_return_object_on_allocation_failure() noexcept; // 字面意思
+    static void* operator new(std::size_t size); // 替换创建协程帧的 operator new; 还可以传入协程的一些参数, 允许通过这些参数做一些操作 (比如得出需要分配的最终大小)
+    static void operator delete(void* ptr) noexcept;
+};
+```
+
+对于一个函数体为 `<body-statements>` 的协程函数, 其协程体会被变换为大致如下的形式：
+
+```cpp
+{
+    /*
+        - 使用 operator new 分配协程帧 (可选)
+        - 把所有函数参数复制到协程帧 // 他们肯定跨第一次挂起
+        - 调用 promise 对象的构造函数
+        - 调用 promise.get_return_object() 获取协程首次挂起时要返回给调用方的结果, 并将其保存为局部变量。
+    */
+
+    co_await promise.initial_suspend(); // 首次挂起
+    try
+    {
+        // <body-statements>
+
+        /*
+            到达 co_return 时还会执行一些额外步骤:
+            - 调用 promise.return_void() 或 promise.return_value()
+            - 按创建顺序的逆序销毁所有具有自动存储期的变量
+        */
+    }
+    catch (...)
+    {
+        promise.unhandled_exception(); 
+        /*
+            如果传播到协程外, 还会
+            - 调用 promise, 函数参数的析构
+            - 使用 operator delete 销毁协程帧 (可选)
+        */ 
+    }
+FinalSuspend:
+    co_await promise.final_suspend();
+}
+```
+
+#### handle
+
+一般来说协程的返回值继承或持有 `coroutine_handle<yourPromise>`, 可以让我们操作协程
+
+`coroutine_handle` 大概会长这样:
 
 ```cpp
 namespace std
@@ -131,21 +192,23 @@ namespace std
 }
 ```
 
-操作: 
+#### `co_await`
 
-- `co_await`: 一个一元运算符, 可以作用在一个 `Awaitable` 上, 代表挂起直到异步操作 `Awaitable` 完成
-    - `Awaitable`: 能被 `co_await` 调用的类型 (可能通过 `operator co_await()` 返回另一个 `Awaiter`, 所以不一定是一个 `Awaiter`)
-    - `Awaiter`: 实现下列接口的类型 (`Awaiter` 一定是一个 `Awaitable`): 这些接口允许程序员做一些自定义操作
-        - `await_ready()`: 判断是否需要挂起时调用的回调函数, 避免下面 `<suspend-coroutine>` 操作的开销
-        - `await_suspend(std::coroutine_handle<>)`: 挂起时调用的回调函数, 可以返回 `bool` 或 `void`; 一般用来启动异步操作, 且负责在异步操作结束后恢复协程, 比如注册回调函数调用 handle 的 resume, 或者把 handle 扔给调度器
-            - 返回 `bool`: `true` 代表真的挂起, 否则继续执行 `co_await` 后面的代码; 避免 `await_ready` 到 `await_suspend` 之间的部分状态发生了变化
-            - 返回 `void`: 一定挂起
-        - `await_resume()`: 恢复时调用的回调函数, 其返回值就是整个 `co_await` 的返回值; 如果抛出异常就从 `co_await` 传播出去, 这种情况下协程会被自动恢复, 且这个恢复不会再调用 `await_resume()`
+一个一元运算符, 可以作用在一个 `Awaitable` 上, 代表挂起直到异步操作 `Awaitable` 完成
 
-    - `co_await <expr>` 流程如下:
-        1. 获取 Awaitable: 如果协程的 promise 有 `await_transform` 方法, 就通过 `promise.await_transform(<expr>)` 获取; 否则把 `<expr>` 本身作为 Awaitable
-        2. 获取 Awaiter: 如果 Awaitable 有 `operator co_await()` 方法, 就用这个获取 Awaiter; 否则把 Awaitable 作为 Awaiter
-        3. 挂起
+- `Awaitable`: 能被 `co_await` 调用的类型 (可能通过 `operator co_await()` 返回另一个 `Awaiter`, 所以不一定是一个 `Awaiter`)
+- `Awaiter`: 实现下列接口的类型 (一个 `Awaiter` 一定是一个 `Awaitable`): 这些接口允许程序员做一些自定义操作
+    - `await_ready()`: 判断是否需要挂起时调用的回调函数, 避免下面 `<suspend-coroutine>` 操作的开销
+    - `await_suspend(std::coroutine_handle<>)`: 挂起时调用的回调函数, 可以返回 `bool` 或 `void`; 一般用来启动异步操作, 且负责在异步操作结束后恢复协程, 比如注册回调函数调用 handle 的 resume, 或者把 handle 扔给调度器
+        - 返回 `bool`: `true` 代表真的挂起, 否则继续执行 `co_await` 后面的代码; 避免 `await_ready` 到 `await_suspend` 之间的部分状态发生了变化
+        - 返回 `void`: 一定挂起
+    - `await_resume()`: 恢复时调用的回调函数, 其返回值就是整个 `co_await <expr>` 的返回值; 如果抛出异常就从 `co_await` 传播出去, 这种情况下协程会被自动恢复, 且这个恢复不会再调用 `await_resume()`
+
+`co_await <expr>` 流程如下:
+
+1. 获取 Awaitable: 如果**协程**的 promise 有 `await_transform` 方法, 就通过 `promise.await_transform(<expr>)` 获取; 否则把 `<expr>` 本身作为 Awaitable
+2. 获取 Awaiter: 如果 Awaitable 有 `operator co_await()` 方法, 就用这个获取 Awaiter; 否则把 Awaitable 作为 Awaiter
+3. 挂起
 
 ```cpp
 {
@@ -222,10 +285,376 @@ Time     Thread 1                           Thread 2
 
 {% endnote %}
 
-- `co_yield`:
-- `co_return`: 
+还有一个有趣的内存分配优化:
 
-#### boost coroutine
+{% note info %}
+
+考虑传统 callback 方式的异步调用: 
+
+```cpp
+struct ReadOperation {
+    OVERLAPPED overlapped;
+    char buffer[4096];
+};
+
+void async_read() {
+    auto* op = new ReadOperation();
+
+    ReadFile(
+        file,
+        op->buffer,
+        sizeof(op->buffer),
+        nullptr,
+        &op->overlapped
+    );
+
+    // 不能在这里 delete op, 因为 I/O 操作可能还没有完成
+    // 需要在操作完成后通过 callback 找到对应的 ReadOperation 并释放
+
+    // ...
+}
+```
+
+并发高的情况下会产生大量的堆分配和释放
+
+考虑协程的情况: 
+
+```cpp
+Task read_async() {
+    ReadOperation op;
+
+    co_await async_read(file, op);
+
+    // op 保存在协程帧上, 可以复用帧的的空间, 且在异步操作中保持有效
+    // 局部变量不用手动管理生命周期
+
+    // ...
+}
+```
+
+更好的方法可以把只有异步操作需要的内存放在 `Awaiter` 里:
+
+```cpp
+struct ReadAwaiter {
+    OVERLAPPED overlapped;
+    char buffer[4096];
+
+    bool await_ready() noexcept {
+        return false;
+    }
+
+    void await_suspend(std::coroutine_handle<> h) {
+        // 启动异步 I/O
+        // 将 &overlapped 传给操作系统
+        // 保存 h，等待 I/O 完成
+    }
+
+    void await_resume() noexcept {
+        // 处理 I/O 结果
+    }
+};
+
+Task read_async() {
+    co_await ReadAwaiter{};
+}
+```
+
+注意 `Awaiter` 跨越了调用点, 也需要保存在协程帧中; `op` 在异步操作完成后, 随着 `Awaiter` 的销毁而被销毁, 协程帧的空闲空间可以留给下一次挂起使用
+
+其实就是类似手动的
+
+```cpp
+Task read_async() {
+    {
+        ReadOperation op;
+        co_await async_read(file, op);
+    }
+}
+```
+
+吧?
+
+[参考](https://lewissbaker.github.io/2017/11/17/understanding-operator-co-await#avoiding-memory-allocations)
+
+{% endnote %}
+
+
+#### `co_yield`
+
+`co_yield <expr>`: 向 promise 中产生值 `<expr>` 并挂起
+
+实现上基本就是 `co_await promise.yield_value(<expr>)`
+
+```cpp
+#include <coroutine>
+#include <iostream>
+
+struct Generator {
+    struct promise_type {
+        int value;
+        Generator get_return_object() { return Generator{ std::coroutine_handle<promise_type>::from_promise(*this) }; }
+        std::suspend_always initial_suspend() noexcept { return {}; }
+        std::suspend_always final_suspend() noexcept { return {}; }
+        std::suspend_always yield_value(int v) noexcept {
+            value = v;
+            return {};
+        }
+        void return_void() {}
+        void unhandled_exception() { std::terminate(); }
+    };
+
+    using handle_type = std::coroutine_handle<promise_type>;
+    handle_type handle;
+
+    explicit Generator(handle_type h) : handle(h) {}
+    ~Generator() {
+        if (handle) {
+            handle.destroy();
+        }
+    }
+
+    bool next() {
+        if (!handle || handle.done()) {
+            return false;
+        }
+
+        handle.resume();
+        return !handle.done();
+    }
+
+    int value() const {
+        return handle.promise().value;
+    }
+};
+
+Generator generate() {
+    co_yield 10;
+    co_yield 20;
+    co_yield 30;
+}
+
+int main() {
+    Generator gen = generate();
+
+    while (gen.next()) {
+        std::cout << gen.value() << '\n';
+    }
+}
+```
+
+#### `co_return`
+
+#### 对称转移
+
+```cpp
+///////////////////////////////////////////////////////////////////////////
+// Example source code for blog post:
+// "C++ Coroutines: Understanding Symmetric-Transfer"
+//
+// Implementation of a naive 'task' coroutine type.
+
+#include <experimental/coroutine>
+#include <iostream>
+
+using namespace std::experimental;
+
+class task {
+public:
+  class promise_type {
+  public:
+    task get_return_object() noexcept {
+      return task{coroutine_handle<promise_type>::from_promise(*this)};
+    }
+
+    suspend_always initial_suspend() noexcept {
+      return {};
+    }
+
+    void return_void() noexcept {}
+
+    void unhandled_exception() noexcept {
+      std::terminate();
+    }
+
+    struct final_awaiter {
+      bool await_ready() noexcept {
+        return false;
+      }
+      void await_suspend(coroutine_handle<promise_type> h) noexcept {
+        h.promise().continuation.resume();
+      }
+      void await_resume() noexcept {}
+    };
+
+    final_awaiter final_suspend() noexcept {
+      return {};
+    }
+
+    coroutine_handle<> continuation;
+  };
+
+  task(task&& t) noexcept
+  : coro_(std::exchange(t.coro_, {}))
+  {}
+
+  ~task() {
+    if (coro_)
+      coro_.destroy();
+  }
+
+  class awaiter {
+  public:
+    bool await_ready() noexcept {
+      return false;
+    }
+
+    void await_suspend(coroutine_handle<> continuation) noexcept {
+      // Store the continuation in the task's promise so that the final_suspend()
+      // knows to resume this coroutine when the task completes.
+      coro_.promise().continuation = continuation;
+
+      // Then we resume the task's coroutine, which is currently suspended
+      // at the initial-suspend-point (ie. at the open curly brace).
+      coro_.resume();
+    }
+
+    void await_resume() noexcept {}
+  private:
+    friend task;
+    explicit awaiter(coroutine_handle<promise_type> h) noexcept
+    : coro_(h)
+    {}
+
+    coroutine_handle<promise_type> coro_;
+  };
+
+  awaiter operator co_await() && noexcept {
+    return awaiter{coro_};
+  }
+
+private:
+  explicit task(coroutine_handle<promise_type> h) noexcept
+  : coro_(h)
+  {}
+
+  coroutine_handle<promise_type> coro_;
+};
+
+
+struct sync_wait_task {
+    struct promise_type {
+        sync_wait_task get_return_object() noexcept {
+            return sync_wait_task{coroutine_handle<promise_type>::from_promise(*this)};
+        }
+
+        suspend_never initial_suspend() noexcept { return{}; }
+        
+        suspend_always final_suspend() noexcept { return{}; }
+
+        void return_void() noexcept {}
+
+        void unhandled_exception() noexcept { std::terminate(); }
+    };
+
+    coroutine_handle<promise_type> coro_;
+
+    explicit sync_wait_task(coroutine_handle<promise_type> h) noexcept : coro_(h) {}
+
+    sync_wait_task(sync_wait_task&& t) noexcept : coro_(t.coro_) {
+        t.coro_ = {};
+    }
+
+    ~sync_wait_task() {
+        if (coro_) {
+            coro_.destroy();
+        }
+    }
+
+    static sync_wait_task start(task&& t) {
+        co_await std::move(t);
+    }
+
+    bool done() {
+        return coro_.done();
+    }
+};
+
+struct manual_executor {
+    struct schedule_op {
+        manual_executor& executor_;
+        schedule_op* next_ = nullptr;
+        coroutine_handle<> continuation_;
+
+        schedule_op(manual_executor& executor)
+        : executor_(executor)
+        {}
+
+        bool await_ready() noexcept { return false; }
+
+        void await_suspend(coroutine_handle<> continuation) noexcept { // 挂起后, 把 handle 放进待执行链表
+            continuation_ = continuation;
+            next_ = executor_.head_;
+            executor_.head_ = this;
+        }
+
+        void await_resume() noexcept {}
+    };
+
+    schedule_op* head_ = nullptr;
+
+    schedule_op schedule() noexcept {
+        return schedule_op{*this};
+    }
+
+    void drain() {
+        while (head_ != nullptr) {
+            auto* item = head_;
+            head_ = item->next_;
+            item->continuation_.resume();
+        }
+    }
+
+    void sync_wait(task&& t) {
+        auto t2 = sync_wait_task::start(std::move(t));
+        while (!t2.done()) {
+            drain();
+        }
+    }
+};
+
+task foo(manual_executor& ex) {
+    std::cout << "inside foo()\n";
+    co_await ex.schedule(); // handle 是 foo 的
+    std::cout << "about to return from foo()\n";
+    co_return;
+}
+
+task bar(manual_executor& ex) {
+    std::cout << "about to call foo()\n";
+    co_await foo(ex);
+    std::cout << "done calling foo()\n";
+}
+
+int main() {
+    manual_executor ex;
+    ex.sync_wait(bar(ex)); // 求值 bar(ex), 把 foo 的 handle 放进链表后
+    return 0;
+}
+```
+
+#### 最佳实践?
+
+总的来说, C++ 是自由的
+
+可惜程序要不是, 所以找点最佳实践洗洗眼睛
+
+### python
+
+### bthread
+
+### boost coroutine
+
+### goroutine
 
 # 同步手段
 

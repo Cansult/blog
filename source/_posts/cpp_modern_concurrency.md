@@ -15,11 +15,13 @@ date: 2026-11-17 19:16:15
 
 # 协程
 
+和你心爱的 fork-join 说再见吧
+
+> 协程是一种能够暂停执行的函数：通过 `suspend` 操作暂停后，可以在稍后的某个时刻通过 `resume` 操作继续执行
+
 协程本身不是并发的, worker 对协程的执行是并发的
 
 (当然按这个说法 `std::thread` 本身也不是并发的, 是 CPU 核对线程的执行是并发的)
-
-> 协程是一种能够暂停执行的函数：通过 `suspend` 操作暂停后，可以在稍后的某个时刻通过 `resume` 操作继续执行
 
 - 按 **控制转移机制** 区分, 分为对称协程和非对称协程
 - 按 是否能够在**嵌套调用内部**暂停执行 区分, 分为有栈协程和无栈协程
@@ -185,8 +187,7 @@ namespace std
   struct coroutine_handle : coroutine_handle<void>
   {
     Promise& promise() const;
-    static coroutine_handle from_promise(Promise& promise); // 注意必须确保 promise 类型与协程帧所使用的具体 promise 类型完全一致；如果具体 promise 类型是 Derived，尝试构造 coroutine_handle<Base> 可能导致未定义行为。
-
+    static coroutine_handle from_promise(Promise& promise); // 需要确保 promise 类型与协程帧所使用的具体 promise 类型完全一致: 如果 promise 类型是 Derived, 构造 coroutine_handle<Base> 是 ub
     static coroutine_handle from_address(void* address);
   };
 }
@@ -199,7 +200,7 @@ namespace std
 - `Awaitable`: 能被 `co_await` 调用的类型 (可能通过 `operator co_await()` 返回另一个 `Awaiter`, 所以不一定是一个 `Awaiter`)
 - `Awaiter`: 实现下列接口的类型 (一个 `Awaiter` 一定是一个 `Awaitable`): 这些接口允许程序员做一些自定义操作
     - `await_ready()`: 判断是否需要挂起时调用的回调函数, 避免下面 `<suspend-coroutine>` 操作的开销
-    - `await_suspend(std::coroutine_handle<>)`: 挂起时调用的回调函数, 可以返回 `bool` 或 `void`; 一般用来启动异步操作, 且负责在异步操作结束后恢复协程, 比如注册回调函数调用 handle 的 resume, 或者把 handle 扔给调度器
+    - `await_suspend(std::coroutine_handle<>)`: 挂起时调用的回调函数, 传入执行 `co_await` 表达式的协程的 handle, 返回 `bool` 或 `void` (代表是否一定挂起); 一般用来启动异步操作, 且负责在异步操作结束后恢复当前的协程, 比如注册回调函数调用 handle 的 resume, 或者把 handle 扔给调度器
         - 返回 `bool`: `true` 代表真的挂起, 否则继续执行 `co_await` 后面的代码; 避免 `await_ready` 到 `await_suspend` 之间的部分状态发生了变化
         - 返回 `void`: 一定挂起
     - `await_resume()`: 恢复时调用的回调函数, 其返回值就是整个 `co_await <expr>` 的返回值; 如果抛出异常就从 `co_await` 传播出去, 这种情况下协程会被自动恢复, 且这个恢复不会再调用 `await_resume()`
@@ -249,13 +250,14 @@ namespace std
 }
 ```
 
-{% note info %}
+{% note info 快速安全切换协程 worker %}
 
 可以注意到 `await_suspend` 是在 协程挂起之后, 转移控制权之前 调用的
 
 有一种 trick 用法是 `Awaiter` 对象在协程已经挂起之后启动异步操作, 并把已挂起协程的 `coroutine_handle` 传给该操作; 操作完成时 (可能在另一个线程上), 它可以直接安全地恢复协程, 不需要任何额外的同步
 
 这种用法需要注意: 在传递完 handle 后, `await_suspend` 就要避免访问 `this` 和 promise; 因为在 交出 handle 之后, `await_suspend` 结束之前, 协程就可能已经恢复了, 这时整个 `Awaiter` 对象都已经被析构了
+
 还是太 trick 了, 尽量少用
 
 ```
@@ -287,7 +289,7 @@ Time     Thread 1                           Thread 2
 
 还有一个有趣的内存分配优化:
 
-{% note info %}
+{% note info 内存分配优化 %}
 
 考虑传统 callback 方式的异步调用: 
 
@@ -444,7 +446,16 @@ int main() {
 
 #### `co_return`
 
+实现上基本就是 
+```cpp
+promise.return_void(); // 或 promise.return_value()
+// 销毁变量
+co_await promise.final_suspend(<expr>);
+```
+
 #### 对称转移
+
+考虑一个朴素实现
 
 ```cpp
 ///////////////////////////////////////////////////////////////////////////
@@ -508,7 +519,7 @@ public:
       return false;
     }
 
-    void await_suspend(coroutine_handle<> continuation) noexcept {
+    void await_suspend(coroutine_handle<> continuation) noexcept { // 把 co_await 调用者的 handle 保存到自己 promise 的成员变量中, 然后恢复自己 handle 的执行
       // Store the continuation in the task's promise so that the final_suspend()
       // knows to resume this coroutine when the task completes.
       coro_.promise().continuation = continuation;
@@ -528,7 +539,7 @@ public:
     coroutine_handle<promise_type> coro_;
   };
 
-  awaiter operator co_await() && noexcept {
+  awaiter operator co_await() && noexcept { // 可以将 task 作为 Awaiter 使用
     return awaiter{coro_};
   }
 
@@ -571,7 +582,13 @@ struct sync_wait_task {
     }
 
     static sync_wait_task start(task&& t) {
-        co_await std::move(t);
+        co_await std::move(t); // co_await bar 的 task, task::promise_type::await_suspend 执行完成后挂起 start 协程, 返回返回值
+        // 隐式 co_return
+        // co_await final_suspend 返回的 suspend_always: 
+        // 挂起当前执行; 
+        // 执行 std::suspend_always::await_suspend:
+            // {}
+        // 返回 caller , 这里是 bar 的 co_return 中的 co_await final_suspend 的执行结束处
     }
 
     bool done() {
@@ -591,7 +608,7 @@ struct manual_executor {
 
         bool await_ready() noexcept { return false; }
 
-        void await_suspend(coroutine_handle<> continuation) noexcept { // 挂起后, 把 handle 放进待执行链表
+        void await_suspend(coroutine_handle<> continuation) noexcept { // 保存调用者的 handle, 把自己加入链表
             continuation_ = continuation;
             next_ = executor_.head_;
             executor_.head_ = this;
@@ -607,7 +624,7 @@ struct manual_executor {
     }
 
     void drain() {
-        while (head_ != nullptr) {
+        while (head_ != nullptr) { // 取出链表头, 恢复链表头中保存的 handle 所操作的协程
             auto* item = head_;
             head_ = item->next_;
             item->continuation_.resume();
@@ -615,32 +632,108 @@ struct manual_executor {
     }
 
     void sync_wait(task&& t) {
-        auto t2 = sync_wait_task::start(std::move(t));
-        while (!t2.done()) {
+        auto t2 = sync_wait_task::start(std::move(t)); // sync_wait_task::promise_type::initial_suspend 返回 suspend_never, 所以直接开始执行 sync_wait_task::start, 在下一个挂起点返回 sync_wait_task::task 的返回值 sync_wait_task
+        while (!t2.done()) { // 判断 start 协程是否到达 final_suspend; 题外话, 如果 final_suspend  返回的 awaiter 不挂起 (比如 std::suspend_never), 协程会被直接销毁, 对 handle 的调用也就非法了
             drain();
         }
+        // t2 的析构销毁 bar 的 handle, 以及对应的帧等资源
     }
 };
 
 task foo(manual_executor& ex) {
     std::cout << "inside foo()\n";
-    co_await ex.schedule(); // handle 是 foo 的
+    co_await ex.schedule(); // 这里的表达式求值是普通的同步函数; 调用返回值的 await_suspend, 传入 foo 的 handle
+    // await_suspend 同步执行完后返回 caller , 这里就是 bar 的 co_await 中的返回 caller 之前的位置
     std::cout << "about to return from foo()\n";
-    co_return;
+    co_return; // co_await final_suspend 返回的 task::final_awaiter: 
+    // 挂起当前执行; 
+    // 执行 task::final_awaiter::await_suspend:
+        // resume promise 中保存的 handle, 这里是 bar 的 co_await foo(ex) 结束的位置
+    // 返回 caller , 这里是 manual_executor::drain
 }
 
 task bar(manual_executor& ex) {
     std::cout << "about to call foo()\n";
-    co_await foo(ex);
+    co_await foo(ex); // 求值 foo(ex), foo 的返回类型和 bar 一样, 行为也一样, foo 挂起后返回 handle; co_await 这个 handle; 这个 handle 作为自动变量会在函数结束时自动析构
+    // await_suspend 同步执行完后返回 caller , 这里就是 sync_wait_task::start 的 co_await 中的返回 caller 之前的位置
     std::cout << "done calling foo()\n";
+    // 隐式 co_return
+    // co_await final_suspend 返回的 task::final_awaiter: 
+    // 挂起当前执行; 
+    // 执行 task::final_awaiter::await_suspend:
+        // resume promise 中保存的 handle, 这里是 sync_wait_task::start 的 co_await 挂起位置 (co_await 语句结束)
+    // 返回 caller , 这里是 foo 的 final_awaiter::await_suspend 中的 h.promise().continuation.resume(); 
 }
 
 int main() {
     manual_executor ex;
-    ex.sync_wait(bar(ex)); // 求值 bar(ex), 把 foo 的 handle 放进链表后
+    ex.sync_wait(bar(ex)); 
+    // 求值 bar(ex): bar 的函数体包含协程操作, 是被视作协程;
+    // 对 bar 的调用被替换 (参考 promise 部分): 首先调用 task::promise_type::initial_suspend, 返回 suspend_always, 所以 bar() 挂起并返回持有 bar handle 的 task (惰性启动)
+
+    // sync_wait 这个 handle
     return 0;
 }
 ```
+
+真是一场酣畅淋漓的赤石啊, 控制权到处乱飞 资源管理心惊肉跳给人一种 goto 领域大神的感觉
+
+{% note warning 栈溢出 %}
+
+我们可以注意到, 在上面的实现中, `await foo()` 执行完成开始销毁的时候, 控制权在 `foo` 和 `bar` 之间来回横跳
+
+考虑下面的执行过程:
+
+```cpp
+task completes_synchronously() {
+    co_return;
+    // co_await task::promise_type::final_awaiter
+        // 挂起当前协程
+        // task::promise_type::final_awaiter::await_suspend
+            // 恢复 promise 中保存的 handle 的执行, 即 loop_synchronously 的 co_await 结束部分
+}
+
+
+task loop_synchronously(int count) {
+    std::cout << "loop_synchronously(" << count << ")" << std::endl;
+    for (int i = 0; i < count; ++i) {
+        co_await completes_synchronously(); 
+        // 表达式求值 拿到 task
+        // co_await 这个 task: 
+            // 挂起当前协程
+            // task::awaiter::await_suspend
+                // 保存 loop_synchronously 的 handle, resume completes_synchronously 的执行
+                
+                // 恢复
+                // 执行下一个迭代, 当前 co_await 调用中的 task::promise_type::final_awaiter::await_suspend 和 completes_synchronously co_return 调用的 task::promise_type::final_awaiter::await_suspend 栈帧的释放要等到整个 loop_synchronously 的隐式 co_return 了
+    }
+    std::cout << "loop_synchronously(" << count << ") returning" << std::endl;
+}
+
+int main() {
+    manual_executor ex;
+    ex.sync_wait(loop_synchronously(100));
+    ex.sync_wait(loop_synchronously(1000));
+    ex.sync_wait(loop_synchronously(100'000));
+    ex.sync_wait(loop_synchronously(1'000'000)); // Crashes with stack-overflow!
+    return 0;
+}
+```
+
+{% endnote %}
+
+
+{% note warning 朴素解法 %}
+
+TODO
+
+要用原子变量, 有额外同步消耗
+
+{% endnote %}
+
+进入正题, 对称转移
+
+允许 `await_suspend` 返回一个 `std::coroutine_handle<>`
 
 #### 最佳实践?
 

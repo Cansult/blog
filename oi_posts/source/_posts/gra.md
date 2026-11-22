@@ -1,3 +1,13 @@
+---
+title: '学习笔记 毕设 [图像处理]'
+tags:
+  - 图像处理
+categories: 学习笔记
+mathjax: true
+abbrlink: 4923
+date: 2023-10-03 15:07:26
+---
+
 
 做毕设，留个记录
 

@@ -36,7 +36,7 @@ date: 2026-11-17 19:16:15
 
 需要把所有跨越状态使用的变量额外保存在堆上, 实现类似于:
 
-(注意无栈协程的暂停点是编译期确定的)
+(注意无栈协程的暂停点是编译期确定的, 所以无栈协程可以不保存寄存器)
 
 (如果编译器能确定协程生存期严格嵌入 caller 生存期中, 也可以放在 caller 的栈帧或者协程 frame 中)
 
@@ -97,11 +97,13 @@ struct FooFrame {
 
 > 在 C++ 看来, 协程就是函数体包含 `co_await`, `co_yield`, `co_return` 关键字之一的函数
 
+似乎标准没规定, 但是对于常见的实现, 我们可以认为跨挂起点的局部变量一开始就是分配在协程帧上的, 在协程函数中对他们的操作也是在帧上操作的 (而不是平时在栈上, 挂起后复制到帧里)
+
 #### promise
 
 (不是 `std::promise`, 但是在典型协程中使用方式是相似的)
 
-promise 实例的一些方法会在协程调用的一些时机被调用, 用来控制协程的行为; 一些 `co_` 操作的一部分会被编译器替换为对 promise 成员函数的调用:
+promise 实例的一些方法会在协程调用的一些时机被调用, 用来控制协程的行为
 
 ```cpp
 struct promise
@@ -123,7 +125,7 @@ struct promise
 };
 ```
 
-对于一个函数体为 `<body-statements>` 的协程函数, 其协程体会被变换为大致如下的形式：
+协程函数体的一部分会被编译器替换为对协程的 promise 成员函数的调用, 对于一个函数体为 `<body-statements>` 的协程函数, 其协程体会被变换为大致如下的形式：
 
 ```cpp
 {
@@ -135,6 +137,10 @@ struct promise
     */
 
     co_await promise.initial_suspend(); // 首次挂起
+
+    // 在这之前的部分被称作 ramp, 会受到用户定义的协程函数签名影响
+    // 下面的部分除了 destroy 的部分都被称作 body, 不难看出 body 没有 abi 问题, 全是编译器决定的
+
     try
     {
         // <body-statements>
@@ -149,13 +155,18 @@ struct promise
     {
         promise.unhandled_exception(); 
         /*
-            如果传播到协程外, 还会
+            如果 unhandled_exception 也抛出异常, 传播到协程外, 还会
             - 调用 promise, 函数参数的析构
             - 使用 operator delete 销毁协程帧 (可选)
+            这部分也属于 destroy
         */ 
     }
 FinalSuspend:
     co_await promise.final_suspend();
+
+    // 接下来的部分属于 destroy
+    // - 调用 promise, 函数参数的析构
+    // - 使用 operator delete 销毁协程帧 (可选)
 }
 ```
 
@@ -197,6 +208,8 @@ namespace std
 
 一个一元运算符, 可以作用在一个 `Awaitable` 上, 代表挂起直到异步操作 `Awaitable` 完成
 
+`Awaitable` 是要 `co_await` 的目标, 主要逻辑在其 `await_suspend` 中; 当前协程的 handle 会被传递给 `Awaitable` 的 `await_suspend` 的参数, 当前的函数栈就会被销毁, handle 作为和异步操作的联系, 供后来找到当前协程帧并恢复执行
+
 - `Awaitable`: 能被 `co_await` 调用的类型 (可能通过 `operator co_await()` 返回另一个 `Awaiter`, 所以不一定是一个 `Awaiter`)
 - `Awaiter`: 实现下列接口的类型 (一个 `Awaiter` 一定是一个 `Awaitable`): 这些接口允许程序员做一些自定义操作
     - `await_ready()`: 判断是否需要挂起时调用的回调函数, 避免下面 `<suspend-coroutine>` 操作的开销
@@ -205,7 +218,7 @@ namespace std
         - 返回 `void`: 一定挂起
     - `await_resume()`: 恢复时调用的回调函数, 其返回值就是整个 `co_await <expr>` 的返回值; 如果抛出异常就从 `co_await` 传播出去, 这种情况下协程会被自动恢复, 且这个恢复不会再调用 `await_resume()`
 
-`co_await <expr>` 流程如下:
+非对称转移的 `co_await <expr>` 流程如下:
 
 1. 获取 Awaitable: 如果**协程**的 promise 有 `await_transform` 方法, 就通过 `promise.await_transform(<expr>)` 获取; 否则把 `<expr>` 本身作为 Awaitable
 2. 获取 Awaiter: 如果 Awaitable 有 `operator co_await()` 方法, 就用这个获取 Awaiter; 否则把 Awaitable 作为 Awaiter
@@ -214,7 +227,7 @@ namespace std
 ```cpp
 {
   auto&& value = /*<expr>*/;
-  auto&& awaitable = get_awaitable(promise, static_cast<decltype(value)>(value));
+  auto&& awaitable = get_awaitable(promise, static_cast<decltype(value)>(value)); // 当前协程的 promise
   auto&& awaiter = get_awaiter(static_cast<decltype(awaitable)>(awaitable));
   if (!awaiter.await_ready()) // 异步操作是否已完成, 是否不需要挂起
   {
@@ -224,7 +237,7 @@ namespace std
       decltype(awaiter.await_suspend(handle_t::from_promise(promise)));
 
     // <suspend-coroutine>
-    // 挂起, 这里编译器会生成代码来保存协程当前状态并为其恢复做好准备，包括存储 <resume-point> 的位置，以及把当前寄存器中持有的值溢出写入协程帧内存。
+    // 挂起, 这里编译器会生成代码来保存协程当前状态并为其恢复做好准备，包括存储 <resume-point> 的位置，以及把协程帧中被缓存到寄存器中的新值写回协程帧
 
     if constexpr (std::is_void_v<await_suspend_result_t>) // 是 void, 一定挂起
     {
@@ -243,12 +256,14 @@ namespace std
       }
     }
 
-    // <resume-point>
+    // <resume-point> // 调用 handle.resume() 时在这里开始执行
   }
 
   return awaiter.await_resume();
 }
 ```
+
+注意 `<return-to-caller-or-resumer>` 后这个 "栈" 就销毁了, 恢复时从 `<resume-point>` 所需要的内容就保存在协程帧里了
 
 {% note info 快速安全切换协程 worker %}
 
@@ -455,7 +470,7 @@ co_await promise.final_suspend(<expr>);
 
 #### 对称转移
 
-考虑一个朴素实现
+考虑一个朴素 协程执行器的实现
 
 ```cpp
 ///////////////////////////////////////////////////////////////////////////
@@ -582,7 +597,7 @@ struct sync_wait_task {
     }
 
     static sync_wait_task start(task&& t) {
-        co_await std::move(t); // co_await bar 的 task, task::promise_type::await_suspend 执行完成后挂起 start 协程, 返回返回值
+        co_await std::move(t); // co_await bar 的 task, task::promise_type::await_suspend 执行完成后挂起 start 协程; 返回返回值: 自己的 sync_wait_task
         // 隐式 co_return
         // co_await final_suspend 返回的 suspend_always: 
         // 挂起当前执行; 
@@ -654,7 +669,7 @@ task foo(manual_executor& ex) {
 
 task bar(manual_executor& ex) {
     std::cout << "about to call foo()\n";
-    co_await foo(ex); // 求值 foo(ex), foo 的返回类型和 bar 一样, 行为也一样, foo 挂起后返回 handle; co_await 这个 handle; 这个 handle 作为自动变量会在函数结束时自动析构
+    co_await foo(ex); // 求值 foo(ex), foo 的返回类型和 bar 一样, 行为也一样, foo 挂起后返回 handle; co_await 这个 handle; 这个 handle 作为临时变量会在语句结束时自动析构
     // await_suspend 同步执行完后返回 caller , 这里就是 sync_wait_task::start 的 co_await 中的返回 caller 之前的位置
     std::cout << "done calling foo()\n";
     // 隐式 co_return
@@ -668,7 +683,7 @@ task bar(manual_executor& ex) {
 int main() {
     manual_executor ex;
     ex.sync_wait(bar(ex)); 
-    // 求值 bar(ex): bar 的函数体包含协程操作, 是被视作协程;
+    // 求值 bar(ex): bar 的函数体包含协程操作, 被视作协程;
     // 对 bar 的调用被替换 (参考 promise 部分): 首先调用 task::promise_type::initial_suspend, 返回 suspend_always, 所以 bar() 挂起并返回持有 bar handle 的 task (惰性启动)
 
     // sync_wait 这个 handle
@@ -731,15 +746,348 @@ TODO
 
 {% endnote %}
 
+##### 返回 handle
+
 进入正题, 对称转移
 
 允许 `await_suspend` 返回一个 `std::coroutine_handle<>`
+
+`co_await` 流程变为:
+
+```cpp
+{
+  decltype(auto) value = <expr>;
+  decltype(auto) awaitable =
+      get_awaitable(promise, static_cast<decltype(value)&&>(value));
+  decltype(auto) awaiter =
+      get_awaiter(static_cast<decltype(awaitable)&&>(awaitable));
+  if (!awaiter.await_ready())
+  {
+    using handle_t = std::coroutine_handle<P>;
+
+    //<suspend-coroutine>
+
+    auto h = awaiter.await_suspend(handle_t::from_promise(p));
+    h.resume(); // 这里不同, 执行权交给 当前协程 awaiter.await_suspend 的返回值, 而非调用者
+    //<return-to-caller-or-resumer>
+
+    //<resume-point>
+  }
+
+  return awaiter.await_resume();
+}
+```
+
+总的来说, 如果把 resume 也看做调用, 协程在 await_suspend 执行结束后, co_await 的非对称形式从调用者调用完成的位置继续执行, 对称形式从 await_suspend 返回的 handle 代表的协程的挂起位置继续执行
+
+由于 `<return-to-caller-or-resumer>` 时, 当前的函数调用栈已经被销毁了, 所以 `h.resume()` 就是函数调用中的最后一个操作了, 即 "尾调用"
+
+{% note info 尾调用 %}
+
+尾调用可以复用当前的函数调用栈, 如果:
+
+- 调用约定支持尾调用, 且调用方与被调用方一致: body 部分的 abi 由编译器决定, 编译器可以构造一个一致且支持尾调用的
+- 返回类型相同: 都是 void
+- 调用之后、返回给调用方之前没有需要运行的非平凡析构函数: 在调用下一个协程的 `resume` 之前, 栈上的对象都析构完了, 协程帧上的不用析构
+- 调用不在 try/catch 块内: 如果看 promise 那一节的伪代码可能觉得在 try 内, 但是实际实现时为了规避这个问题把 `h.resume` 挪出去了
+
+所以对于对称转移的协程, 这些条件都满足
+
+{% endnote %}
+
+使用对称转移改造后, 代码如下
+
+```cpp
+///////////////////////////////////////////////////////////////////////////
+// Example source code for blog post:
+// "C++ Coroutines: Understanding Symmetric-Transfer"
+//
+// Implementation of a naive 'task' coroutine type.
+
+#include <experimental/coroutine>
+#include <iostream>
+
+using namespace std::experimental;
+
+class task {
+public:
+  class promise_type {
+  public:
+    task get_return_object() noexcept {
+      return task{coroutine_handle<promise_type>::from_promise(*this)};
+    }
+
+    suspend_always initial_suspend() noexcept {
+      return {};
+    }
+
+    void return_void() noexcept {}
+
+    void unhandled_exception() noexcept {
+      std::terminate();
+    }
+
+    struct final_awaiter {
+      bool await_ready() noexcept {
+        return false;
+      }
+      coroutine_handle<> await_suspend(coroutine_handle<promise_type> h) noexcept {
+        return h.promise().continuation; // 从直接调用 h.promise().continuation.resume(); 改为返回 continuation, 通过 caller 的尾调用恢复 continuation
+      }
+      void await_resume() noexcept {}
+    };
+
+    final_awaiter final_suspend() noexcept {
+      return {};
+    }
+
+    coroutine_handle<> continuation;
+  };
+
+  task(task&& t) noexcept
+  : coro_(std::exchange(t.coro_, {}))
+  {}
+
+  ~task() {
+    if (coro_)
+      coro_.destroy();
+  }
+
+  class awaiter {
+  public:
+    bool await_ready() noexcept {
+      return false;
+    }
+
+    coroutine_handle<> await_suspend(coroutine_handle<> continuation) noexcept {
+      // Store the continuation in the task's promise so that the final_suspend()
+      // knows to resume this coroutine when the task completes.
+      coro_.promise().continuation = continuation;
+
+      // Then we resume the task's coroutine, which is currently suspended
+      // at the initial-suspend-point (ie. at the open curly brace).
+      return coro_; // 从直接调用 coro_.resume(); 改为返回 coro_, 通过 caller 的尾调用恢复 coro_
+      // 直接调用不能释放当前 await_suspend 的栈
+    }
+
+    void await_resume() noexcept {}
+  private:
+    friend task;
+    explicit awaiter(coroutine_handle<promise_type> h) noexcept
+    : coro_(h)
+    {}
+
+    coroutine_handle<promise_type> coro_;
+  };
+
+  awaiter operator co_await() && noexcept {
+    return awaiter{coro_};
+  }
+
+private:
+  explicit task(coroutine_handle<promise_type> h) noexcept
+  : coro_(h)
+  {}
+
+  coroutine_handle<promise_type> coro_;
+};
+
+
+struct sync_wait_task {
+    struct promise_type {
+        sync_wait_task get_return_object() noexcept {
+            return sync_wait_task{coroutine_handle<promise_type>::from_promise(*this)};
+        }
+
+        suspend_never initial_suspend() noexcept { return{}; }
+        
+        suspend_always final_suspend() noexcept { return{}; }
+
+        void return_void() noexcept {}
+
+        void unhandled_exception() noexcept { std::terminate(); }
+    };
+
+    coroutine_handle<promise_type> coro_;
+
+    explicit sync_wait_task(coroutine_handle<promise_type> h) noexcept : coro_(h) {}
+
+    sync_wait_task(sync_wait_task&& t) noexcept : coro_(t.coro_) {
+        t.coro_ = {};
+    }
+
+    ~sync_wait_task() {
+        if (coro_) {
+            coro_.destroy();
+        }
+    }
+
+    static sync_wait_task start(task&& t) {
+        co_await std::move(t);
+    }
+
+    bool done() {
+        return coro_.done();
+    }
+};
+
+struct manual_executor {
+    struct schedule_op {
+        manual_executor& executor_;
+        schedule_op* next_ = nullptr;
+        coroutine_handle<> continuation_;
+
+        schedule_op(manual_executor& executor)
+        : executor_(executor)
+        {}
+
+        bool await_ready() noexcept { return false; }
+
+        void await_suspend(coroutine_handle<> continuation) noexcept {
+            continuation_ = continuation;
+            next_ = executor_.head_;
+            executor_.head_ = this;
+        }
+
+        void await_resume() noexcept {}
+    };
+
+    schedule_op* head_ = nullptr;
+
+    schedule_op schedule() noexcept {
+        return schedule_op{*this};
+    }
+
+    void drain() {
+        while (head_ != nullptr) {
+            auto* item = head_;
+            head_ = item->next_;
+            item->continuation_.resume();
+        }
+    }
+
+    void sync_wait(task&& t) {
+        auto t2 = sync_wait_task::start(std::move(t));
+        while (!t2.done()) {
+            drain();
+        }
+    }
+};
+
+task completes_synchronously() {
+    co_return;
+}
+
+
+task loop_synchronously(int count) {
+    std::cout << "loop_synchronously(" << count << ")" << std::endl;
+    for (int i = 0; i < count; ++i) {
+        co_await completes_synchronously();
+    }
+    std::cout << "loop_synchronously(" << count << ") returning" << std::endl;
+}
+
+int main() {
+    manual_executor ex;
+    ex.sync_wait(loop_synchronously(100));
+    ex.sync_wait(loop_synchronously(1000));
+    ex.sync_wait(loop_synchronously(100'000));
+    ex.sync_wait(loop_synchronously(1'000'000)); // Crashes with stack-overflow!
+    return 0;
+}
+```
+
+调用过程中的栈帧图可以[参考](https://lewissbaker.github.io/2020/05/11/understanding_symmetric_transfer#task-revisited)
+
+{% note info 对称转移可以实现非对称转移 %}
+
+显然, 从定义来看, 转移给任意协程包括转移给调用者
+
+只需要 `await_suspend` 返回 `std::noop_coroutine()` (通常的实现就是只包含 ret) 就行了
+
+##### 例 1
+
+- 返回 void 的形式
+
+```cpp
+void my_awaiter::await_suspend(std::coroutine_handle<> h) {
+  this->coro = h;
+  enqueue(this);
+}
+```
+
+- 返回 bool 的形式
+
+```cpp
+bool my_awaiter::await_suspend(std::coroutine_handle<> h) {
+  this->coro = h;
+  enqueue(this);
+  return true;
+}
+```
+
+- 对称转移形式
+
+```cpp
+std::noop_coroutine_handle my_awaiter::await_suspend(
+    std::coroutine_handle<> h) {
+  this->coro = h;
+  enqueue(this);
+  return std::noop_coroutine();
+}
+```
+
+##### 例 2
+
+- 返回 bool 的形式
+
+```cpp
+bool my_awaiter::await_suspend(std::coroutine_handle<> h) {
+  this->coro = h;
+  if (try_start(this)) {
+    // 操作将异步完成。
+    // 返回 true，把执行转移给 coroutine_handle::resume()
+    // 的调用方。
+    return true;
+  }
+
+  // 操作同步完成。
+  // 返回 false，立即恢复当前协程。
+  return false;
+}
+```
+
+- 对称转移形式
+
+```cpp
+std::coroutine_handle<> my_awaiter::await_suspend(std::coroutine_handle<> h) {
+  this->coro = h;
+  if (try_start(this)) {
+    // 操作将异步完成。
+    // 返回 std::noop_coroutine()，把执行转移给
+    // coroutine_handle::resume() 的调用方。
+    return std::noop_coroutine();
+  }
+
+  // 操作同步完成。
+  // 返回当前协程的句柄，立即恢复当前协程。
+  return h;
+}
+```
+
+{% endnote %}
+
+#### 编译器转换
+
+TODO
 
 #### 最佳实践?
 
 总的来说, C++ 是自由的
 
 可惜程序员不是, 所以找点最佳实践洗洗眼睛
+
+
 
 ### python
 

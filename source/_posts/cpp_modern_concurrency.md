@@ -15,6 +15,7 @@ date: 2026-11-17 19:16:15
 
 # 协程
 
+
 和你心爱的 fork-join 说再见吧
 
 > 协程是一种能够暂停执行的函数：通过 `suspend` 操作暂停后，可以在稍后的某个时刻通过 `resume` 操作继续执行
@@ -72,6 +73,35 @@ struct FooFrame {
 
 [一个示例](https://lewissbaker.github.io/2017/09/25/coroutine-theory#an-illustration)
 
+## 协程之前
+
+通过回调实现异步读: 
+
+```cpp
+void read_data() {
+    async_read(fd, [](auto data) {
+        async_process(data, [](auto result) {
+            async_write(fd, result, [] {
+                async_flush(fd, [] {
+                    async_close(fd, [] {
+                        // 完成
+                    });
+                });
+            });
+        });
+    });
+}
+```
+
+```cpp
+task<void> read_data() {
+    auto data = co_await async_read(fd);
+    auto result = co_await async_process(data);
+    co_await async_write(fd, result);
+    // 完成
+}
+```
+
 ## 有栈协程
 
 和线程类似, 保存着当前的调用栈 (不管是协程的, 还是协程调用的非协程函数的, 更可能需要编译器开洞), 协程暂停时还需要保存寄存器之类的; 一般是放在堆上
@@ -96,6 +126,7 @@ struct FooFrame {
 之所以是一般来说, 是因为 C++ 是自由的
 
 > 在 C++ 看来, 协程就是函数体包含 `co_await`, `co_yield`, `co_return` 关键字之一的函数
+> C++ coroutine 是无栈且对称转移的
 
 似乎标准没规定, 但是对于常见的实现, 我们可以认为跨挂起点的局部变量一开始就是分配在协程帧上的, 在协程函数中对他们的操作也是在帧上操作的 (而不是平时在栈上, 挂起后复制到帧里)
 
@@ -1096,6 +1127,100 @@ TODO
 ### boost coroutine
 
 ### goroutine
+
+### typescript
+
+无栈, 非对称转移
+
+### cordis ?
+
+这个应该放在协程里吗
+
+```typescript
+import type { Context } from '@deepseek-ai/cordis'
+
+export const name = 'lifecycle-demo'
+
+function heartbeat(ctx: Context) { // 插件的函数体在 ctx.plugin 中注册, 但不是立即同步执行, 而且可能需要等条件满足之类的 
+  console.log('heartbeat plugin loading')
+  ctx.effect(() => { // 传入 ctx.effect 中的 callback 会被立即同步执行
+    const timer = setInterval(() => console.log('tick'), 200)
+    return () => {
+      clearInterval(timer)
+      console.log('heartbeat cleaned up')
+    } // 这里返回的 disposer 被注册给框架, 可以通过框架返回的 fiber 调用
+  })
+}
+
+export function apply(ctx: Context) {
+  // Mount a child plugin and keep its fiber to dispose it later.
+  const fiber = ctx.plugin(heartbeat) // ctx.plugin 将函数作为插件处理; 如果传入的是 Service 就是调 new construtor 之类的
+  // The demo timer is itself an effect: if THIS plugin is unloaded first,
+  // the pending callback is cancelled instead of firing on a dead app.
+  ctx.effect(() => {
+    const timer = setTimeout(async () => {
+      await fiber.dispose()
+      console.log('disposed')
+      process.exit(0)
+    }, 700)
+    return () => clearTimeout(timer)
+  })
+}
+```
+
+#### 触发器
+
+```typescript
+// stats.ts
+import { Service, type Context } from '@deepseek-ai/cordis'
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    stats: StatsService
+  }
+  interface Events {
+    'stats/report'(name: string, count: number): void
+  }
+}
+
+export class StatsService extends Service {
+  private counts = new Map<string, number>()
+
+  constructor(ctx: Context) {
+    super(ctx, 'stats')
+  }
+
+  bump(name: string) {
+    const next = (this.counts.get(name) ?? 0) + 1
+    this.counts.set(name, next)
+    this.ctx.emit('stats/report', name, next) // 触发监听器: key 和 回调的参数
+  }
+}
+
+export const name = 'stats'
+
+export function apply(ctx: Context) {
+  ctx.plugin(StatsService)
+}
+```
+
+```typescript
+// reporter.ts
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from './stats.ts'
+
+export const name = 'reporter'
+export const inject = ['stats']
+
+export function apply(ctx: Context) {
+  ctx.on('stats/report', (name, count) => { // 注册监听器: 字符串可以看做是监听的 key; 回调
+    console.log(`[stats] ${name} -> ${count}`)
+  })
+  ctx.stats.bump('tool_call')
+  ctx.stats.bump('tool_call')
+  ctx.stats.bump('prompt')
+}
+```
 
 # 同步手段
 

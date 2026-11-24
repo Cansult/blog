@@ -15,17 +15,65 @@ date: 2026-11-17 19:16:15
 
 # 协程
 
-
-和你心爱的 fork-join 说再见吧
+一般认为线程是抢占式的, 协程是协作式的, 所以称为协程
 
 > 协程是一种能够暂停执行的函数：通过 `suspend` 操作暂停后，可以在稍后的某个时刻通过 `resume` 操作继续执行
 
-协程本身不是并发的, worker 对协程的执行是并发的
+协程本身不是并发的, worker 对协程的执行可能是并发的
 
-(当然按这个说法 `std::thread` 本身也不是并发的, 是 CPU 核对线程的执行是并发的)
+(当然按这个说法 `std::thread` 本身也不是并发的, 是 CPU 核对线程的执行可能是并发的)
 
 - 按 **控制转移机制** 区分, 分为对称协程和非对称协程
 - 按 是否能够在**嵌套调用内部**暂停执行 区分, 分为有栈协程和无栈协程
+
+## 协程之前
+
+通过回调实现异步读: 
+
+```cpp
+void read_data() {
+    async_read(fd, [](auto data) {
+        async_process(data, [](auto result) {
+            async_write(fd, result, [] {
+                async_flush(fd, [] {
+                    async_close(fd, [] {
+                        // 完成
+                    });
+                });
+            });
+        });
+    });
+}
+```
+
+```cpp
+task<void> read_data() {
+    auto data = co_await async_read(fd);
+    auto result = co_await async_process(data);
+    co_await async_write(fd, result);
+    // 完成
+}
+```
+
+从这个例子来看, 协程的控制权转移和回调是差不多的, 注册回调看做协程注册 handle 的部分, 调用回调看做协程的 `handle.resume()`
+
+这里体现了协程的一些主要好处: 
+
+- 最后的 `完成` 部分, 我们仍在初始的 `read_data` 内部, 这部分所需要的数据不需要一层层传给回调函数 (万一需要的数据变了接口全得改), 而是通过协程帧等方式自动处理
+- 可以随意拆分 `read_data`; 回调版本只能改接口, 把拆分后的部分再作为回调
+
+当然从理论上讲协程也是通过回调实现的, 所以两者的表达能力是相同的
+
+### 性能
+
+#### 线程
+
+>  A context switch between threads requires system calls (involving the OS kernel), which can cost more than thousand CPU cycles on x86 CPUs. By contrast, transferring control vias callcc()/continuation requires only few CPU cycles because it does not involve system calls as it is done within a single thread. 
+
+- 用户态内核态切换
+- 内核调度器
+- 可能切换到其他进程的线程导致的 tlb miss
+- 可能被切到其他核
 
 ## 无栈协程 (状态机)
 
@@ -73,35 +121,6 @@ struct FooFrame {
 
 [一个示例](https://lewissbaker.github.io/2017/09/25/coroutine-theory#an-illustration)
 
-## 协程之前
-
-通过回调实现异步读: 
-
-```cpp
-void read_data() {
-    async_read(fd, [](auto data) {
-        async_process(data, [](auto result) {
-            async_write(fd, result, [] {
-                async_flush(fd, [] {
-                    async_close(fd, [] {
-                        // 完成
-                    });
-                });
-            });
-        });
-    });
-}
-```
-
-```cpp
-task<void> read_data() {
-    auto data = co_await async_read(fd);
-    auto result = co_await async_process(data);
-    co_await async_write(fd, result);
-    // 完成
-}
-```
-
 ## 有栈协程
 
 和线程类似, 保存着当前的调用栈 (不管是协程的, 还是协程调用的非协程函数的, 更可能需要编译器开洞), 协程暂停时还需要保存寄存器之类的; 一般是放在堆上
@@ -118,6 +137,8 @@ task<void> read_data() {
 ## 常见实现
 
 ### cpp20:
+
+无栈, 对称转移
 
 哎我靠 cpp 怎么这么自由
 
@@ -1122,11 +1143,260 @@ TODO
 
 ### python
 
+无栈, 非对称转移
+
+不能自定义协程返回 handle 的是不是基本都是非对称的
+
+`async def` 返回 handle, 可以对 handle 进行:
+
+- `asyncio.run(handle)`: 有点类似 cuda 里的 `__global__`, 用来作为桥梁在普通函数中启动协程
+- `await`: 只能在 `async def` 的函数中执行; 挂起当前协程, 等待 `await` 的协程结束后继续执行
+
+```python
+import asyncio
+import time
+
+async def say_after(delay, what):
+    await asyncio.sleep(delay) # 控制权交给调度器, sleep 的过程中调度器可以执行其他任务, 定时器到期后调度器再 resume 到语句结束时
+    print(what)
+
+async def main():
+    print(f"started at {time.strftime('%X')}")
+
+    await say_after(1, 'hello')
+    await say_after(2, 'world') # 这里不会自动并发执行
+
+    print(f"finished at {time.strftime('%X')}")
+
+asyncio.run(main())
+```
+
+```python
+async def main():
+    task1 = asyncio.create_task( # 这里实际已经可能开始执行了
+        say_after(1, 'hello'))
+
+    task2 = asyncio.create_task(
+        say_after(2, 'world'))
+
+    print(f"started at {time.strftime('%X')}")
+
+    # 等待直到两个任务都完成
+    # （会花费约 2 秒钟。）
+    await task1 # 这里只是等待结束
+    await task2
+
+    print(f"finished at {time.strftime('%X')}")
+```
+
+python 还能 await 一个 future, 类似 `future.get` 的异步版本
+
+#### loop
+
+
 ### bthread
 
-### boost coroutine
+有栈, 非对称转移
+
+虽然日常说法都把 bthread 当做协程
+
+但是 bthread [第一个 faq](https://brpc.apache.org/docs/bthread/bthread/#qbthread%E6%98%AF%E5%8D%8F%E7%A8%8Bcoroutine%E5%90%97) 就说他不是协程
+
+为什么?
+
+- bthread 定义的协程似乎是每个线程上有一个任务队列, 一个任务分配到一个线程就只能在这个线程执行了, 这个线程可以切换在这个线程上的任务? 可能是定义年代问题吧, 不然 cpp 的 coroutine 恐怕都不算协程了
+- bthread 有调度器? 但是似乎日常也把 goroutine 看做协程?
+
+注意其中所谓的 "一个bthread被卡住不会影响其他bthread" 只能说不会卡死所有 bthread, 执行效率依然下降了 (少了一个 worker)
+
+操作: 
+
+- `bthread_start_background`: 在后台启动新 bthread
+- `bthread_start_urgent`: 挂起当前 bthread, 后台启动新 bthread 并立刻执行这个新 bthread
+- `bthread_yield()`: 挂起
+- `return `: 销毁
+- bthread 提供的非阻塞操作: `bthread_usleep`, `bthread_cond_wait` ...
+
+bthread 操作的一个好处在于可以在 bthread 上进行也可以在 pthread 上进行, bthread 上表现为非阻塞操作 (对 worker 来说), pthread 上表现为阻塞操作
+
+注意虽然 bthread 只在这些非阻塞函数上表现为协程 (可以挂起), 但这个挂起可以让上层的非协程函数也跟着挂起 (表现为有栈); 对比 cpp20 的协程如果想让上层跟着挂起, 上层必须是个协程 (包含 `co_await`)
+
+bthread 的函数调用栈类似于多线程时不同线程的栈, 挂起时的寄存器用汇编压到 bthread 自己的栈上, 恢复时再用汇编弹回寄存器上
+
+注意到 bthread 的启动方式导致 bthread 的函数调用栈和创建者的函数调用栈没有关系
+
+### Boost.Context
+
+#### fiber
+
+有栈, 对称转移
+
+```cpp
+namespace ctx=boost::context;
+int a;
+ctx::fiber source{[&a](ctx::fiber&& sink){ // sink 由 context 库自动传入
+    a=0;
+    int b=1;
+    for(;;){
+        sink=std::move(sink).resume(); // resume 继续 fiber, 消耗旧的 (只能是右值) 句柄, 返回新的句柄
+        // 虽然这里是非对称的返回了 caller, 但是不难发现如果能传进来一个 fiber, 想调谁调谁
+        int next=a+b;
+        a=b;
+        b=next;
+    }
+    return std::move(sink); // 这里和普通函数一样不可达
+}};
+for (int j=0;j<10;++j) {
+    source=std::move(source).resume();
+    std::cout << a << " ";
+}
+
+/*
+output:
+    0 1 1 2 3 5 8 13 21 34
+*/
+```
+
+##### 参数
+
+参数只能通过捕获, 全局变量, `std::bind` 传递; 有点麻烦
+
+```cpp
+ctx::fiber generate(int& a, ctx::fiber&& sink) { // 不能作为 fiber 直接调用
+    a = 0;
+    int b = 1;
+
+    for (;;) {
+        sink = std::move(sink).resume();
+        int next = a + b;
+        a = b;
+        b = next;
+    }
+
+    return std::move(sink);
+}
+```
+
+`ctx::fibre` 的构造函数只接受签名为 `fiber(fiber && f)` 的 callable
+
+所以要包装一层:
+
+```cpp
+int a;
+
+ctx::fiber source{
+    std::bind(generate, std::ref(a), std::placeholders::_1)
+};
+```
+
+##### 注入
+
+`resume_with` 可以在对方的栈上执行代码, 挺有意思的
+
+```cpp
+namespace ctx=boost::context;
+int data=0;
+ctx::fiber f1{[&data](ctx::fiber&& f2) {
+    std::cout << "f1: entered first time: " << data << std::endl;
+    data+=1;
+    f2=std::move(f2).resume();
+    std::cout << "f1: entered second time: " << data << std::endl;
+    data+=1;
+    f2=std::move(f2).resume();
+    std::cout << "f1: entered third time: " << data << std::endl;
+    return std::move(f2);
+}};
+f1=std::move(f1).resume();
+std::cout << "f1: returned first time: " << data << std::endl;
+data+=1;
+f1=std::move(f1).resume();
+std::cout << "f1: returned second time: " << data << std::endl;
+data+=1;
+f1=std::move(f1).resume_with([&data](ctx::fiber&& f2){ // 这里的 f2 是调用者, 由 context 库传入
+    std::cout << "f2: entered: " << data << std::endl;
+    data=-1;
+    return std::move(f2); // 这里的返回值会作 resume_with 的对象 (f1) 的参数 (首次调用时) 或者 上次挂起时的 std::move(f2).resume(); 的返回值
+});
+std::cout << "f1: returned third time" << std::endl;
+
+/*
+output:
+    f1: entered first time: 0
+    f1: returned first time: 1
+    f1: entered second time: 2
+    f1: returned second time: 3
+    f2: entered: 4
+    f1: entered third time: -1
+    f1: returned third time
+*/
+```
+
+在谁的栈上执行有区别吗?
+
+比较简单的例子就是异常处理:
+
+```cpp
+namespace ctx=boost::context;
+struct my_exception : public std::runtime_error {
+    ctx::fiber    f;
+    my_exception(ctx::fiber&& f_,std::string const& what) :
+        std::runtime_error{ what },
+        f{ std::move(f_) } {
+    }
+};
+
+ctx::fiber f{[](ctx::fiber && f) ->ctx::fiber {
+    std::cout << "entered" << std::endl;
+    try {
+        f=std::move(f).resume();
+    } catch (my_exception & ex) {
+        std::cerr << "my_exception: " << ex.what() << std::endl;
+        return std::move(ex.f);
+    }
+    return {};
+});
+f=std::move(f).resume();
+f=std::move(f).resume_with([](ctx::fiber && f) ->ctx::fiber {
+    throw my_exception(std::move(f),"abc");
+    return {};
+});
+
+/*
+output:
+    entered
+    my_exception: abc
+*/
+```
+
+#### callcc
+
+#### continuation
+
+### Boost.Coroutine
+
+有栈, 非对称转移
+
+### Boost.Coroutine2
+
+有栈, 非对称转移
 
 ### goroutine
+
+有栈, 非对称转移
+
+goroutine 的栈可以动态扩缩容, 不像多线程 / bthread 的栈, 超大小了就栈溢出了
+
+M 可以看做 pthread, 只负责执行, 不管调度
+
+P 看做调度单位, 有任务队列等, 最多绑定一个 M
+
+M 数量一般大于 P, 多出来的 M 用来:
+
+M 阻塞时可以解绑其上的 P, 绑定到空闲的其他 M 上, 避免阻塞整个 P 队列中的其他任务; 阻塞的任务完成后就像新加入一个任务一样分配到一个 P 上
+
+也不用专门非阻塞 api, 很简单, 很爽
+
+需要额外开销, 感觉对于有 runtime 的语言来说, 应该就是最优解了
 
 ### typescript
 

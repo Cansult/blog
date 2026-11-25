@@ -1,5 +1,5 @@
 ---
-title: 数学基础
+title: 数学基础 [WIP]
 tags:
   - 数学
 categories: 学习笔记

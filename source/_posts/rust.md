@@ -1,5 +1,5 @@
 ---
-title: Rust 入门
+title: Rust 入门 [WIP]
 categories: 学习笔记
 tags:
   - 语言

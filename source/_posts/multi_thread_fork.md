@@ -4,6 +4,7 @@ categories: 翻车笔记
 tags:
   - Linux
   - 多线程
+abbrlink: 65025
 date: 2026-11-25 19:27:04
 ---
 
@@ -16,11 +17,12 @@ linux 的线程本质是个小进程, 只不过虚拟内存 (和文件之类的�
 在 fork 时, 复制了虚拟内存, 因此所有线程的栈都会复制
 
 - cow 的情况就是:
-    - 复制 mm_struct 和他拥有的所有 vma
+    - 复制 `mm_struct` 和他拥有的所有 vma
     - 更改所有可写 vma 对应页表项的 writable 标志位至只读
     - copy 后的页表项改为可写, 原来的仍然是只读 (可能 fork 了多个子进程, 类似引用计数)
 
 但是一个线程:
+
 - 能被执行需要: 创建他的 `task_struct` 并放到一个 cpu 的任务队列 (running queue: struct rq) 里
     - 这个任务队列有空闲时 pull 任务, 太忙时 push 任务到其他核 的功能
     - 考虑内存亲和会尽量让这种 task 的移动在 NUMA 节点内

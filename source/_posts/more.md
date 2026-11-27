@@ -1,9 +1,10 @@
 ---
-title: 《more is defferent》读书笔记 [WIP]
+title: '《more is defferent》读书笔记 [WIP]'
 categories: 读书笔记
 tags:
   - 架构
   - 还原论
+abbrlink: 34432
 date: 2025-03-08 19:27:04
 ---
 

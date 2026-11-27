@@ -207,10 +207,6 @@ Hopper 增加了 TMA 和 Tensor Core, 和 Cuda Core 可以并行运行
 [参考](https://zhuanlan.zhihu.com/p/2068355332049522938)
 
 
-### KV Cache
-
-![decode](../pictures/261105B.gif)
-
 ### MHA
 
 MHA 在 decode 时的算数强度太差了 ($bnd^2$ 次计算, 读之前的 KV 和计算当前 KV 读取投影矩阵 $W_K, W_V$ 总共需要 $bn^2d + nd^2$ 次访存), 考虑怎么优化
@@ -374,3 +370,89 @@ Conventions:
 - N = K G (for GQA, number of heads split across K groups)
 - S = T (during training, condition on S input tokens to predict T output tokens)
 
+## 常见实现
+
+### KV Cache
+
+![decode](../pictures/261105B.gif)
+
+#### Paged Attn
+
+- vllm
+- deepInfer
+
+其实类似一个 trie 边是固定长度 token , 用 hash 实现的 radix attn
+
+理论上贡献在于把显存当内存一样分页管理: 可能是出于性能考虑, `cudaMalloc` 并不会像内存一样只 (?) 分配虚拟内存, 等缺页时再 commit; 所以对于不知道多长的 token 序列, 分页可以避免碎片
+
+token 序列按固定长度分块; 每块做类似前缀哈希
+
+$$
+h_i=\operatorname{Hash}(h_{i-1},\ \text{tokens}_i,\ \text{extra keys})
+$$
+
+- extra keys: 用来区分一些 token 相同而实际内容不同的东西, 比如图片的占位符
+
+然后判断 $h_i$ 是否已经存在就能找公共前缀了
+
+#### Radix Attn
+
+- sglang
+- TensorRT
+
+cache 的所有 token 序列的压缩 (一个节点只有一个子节点就压缩) trie 树; 
+
+其实 radix attn 也分 page 了, radix 只是为了快速找 page 号
+
+或许名字应该叫 radix-paged attn 和 hash-paged attn
+
+```python
+class TreeNode:
+    counter = 0
+
+    def __init__(self, id: Optional[int] = None, priority: int = 0):
+        self.children = defaultdict(TreeNode) # 子节点集合
+        self.parent: TreeNode = None # 父节点
+        self.key: RadixKey = None # 节点代表的 token 序列
+        self.value: Optional[torch.Tensor] = None # 节点代表的 kv cache page 编号
+        self.lock_ref = 0
+        self.last_access_time = time.monotonic()
+        self.creation_time = time.monotonic()
+
+        self.hit_count = 0
+        # store hash values of each pages
+        self.hash_value: Optional[List[str]] = None
+        # Namespace-aware hashes used only for external KV events.
+        self.event_hash_value: Optional[List[str]] = None
+        # priority for priority-aware eviction
+        self.priority = priority
+
+        self.id = TreeNode.counter if id is None else id
+        TreeNode.counter += 1
+```
+
+### 调度
+
+#### batch
+
+- FFN: decode 时挨个计算 $x_iW$ 效率太低了 (重复加载大矩阵); 一个 batch 内的 ffn 可以改为 $\begin{bmatrix}x_1\\ x_2\\ x_3\\ x_4 \end{bmatrix}W$
+- 并行度: 单个 decode 计算可能喂不满全部 SM
+- kernel launch: 减少 cpu 和 gpu 交互开销
+
+#### PD 分离
+
+
+- vllm
+
+```python
+# NOTE(woosuk) on the scheduling algorithm:
+# There's no "decoding phase" nor "prefill phase" in the scheduler.
+# Each request just has the num_computed_tokens and
+# num_tokens_with_spec. num_tokens_with_spec =
+# len(prompt_token_ids) + len(output_token_ids) + len(spec_token_ids).
+# At each step, the scheduler tries to assign tokens to the requests
+# so that each request's num_computed_tokens can catch up its
+# num_tokens_with_spec. This is general enough to cover
+# chunked prefills, prefix caching, speculative decoding,
+# and the "jump decoding" optimization in the future.1
+```

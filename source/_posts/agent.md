@@ -15,11 +15,9 @@ You are a helpful agent.
 
 # 什么是 Agent
 
-这个问题太哲学了, 而且不知道是不是因为缺乏标准, 这帮人也是真能水论文; 我尽量写一些关键里程碑, 他们提出的定义真的能提高 Agent 性能
+这个问题好像有点太哲学了
 
 ## 古典时代
-
-有点纸上谈兵
 
 - Rational Agent: 最大化得分的期望
 - BDI: 划分 Belief, Desire (`/goal`?), Intention
@@ -31,22 +29,35 @@ You are a helpful agent.
 - Deliberative/Reactive: 开不开 plan?
 - ReAct: 推理行动交替
 
-算了直接用
+算了还是直接用
 
 > - Workflows are systems where LLMs and tools are orchestrated through predefined code paths.
 > - Agents, on the other hand, are systems where LLMs dynamically direct their own processes and tool usage, maintaining control over how they accomplish tasks.
+
+从产品来看 agent 就是给个 `/goal` 就能完成任务; 现在还需要和人多轮交互还是模型水平问题 (goal 不够明确算不算模型水平问题呢, 或许以后能足够强了不需要人传达任务了?)
+
+从实现来看就是个维护上下文的 `while (!done): context = curl chat/completion context;`; 模型、人、工具都可以改上下文, 直到最终有个特殊上下文表示任务完成了
 
 # 常见实现
 
 ## dsh
 
-### session
+### context
 
 结构如下:
 
 - session: 完整会话, 所有要发给模型的部分
-    - turn: 两次用户交互 (比如发送一条消息) 之间的部分
-    - step: 两次模型调用之间的部分
+- turn: 两次用户交互 (比如发送一条消息) 之间的部分
+- step: 两次模型调用之间的部分
+
+#### compact
+
+- pruneContent: 直接删过长的 `tool_result` 内容, 只保留首位 
+- Autocompact: 到阈值后的自动 `/compact`; 近期的内容会原样保留, 避免拆散 `tool_call` 和 `tool_result`
+
+### tool
+
+
 
 ### cordis
 
@@ -136,3 +147,34 @@ export function apply(ctx: Context) {
 }
 ```
 
+## claude code
+
+致敬 26H1 最佳开源软件 (
+
+### context
+
+- session: 似乎一个 cc 进程一个时刻只能有一个活跃的 session, 他的 message[] 被放在内存里; 不活跃的 session 在 .cluade 的 .jsonl 里
+- message: 一个 role 的一条消息
+- content: 实际信息, 可以有多种类型 (图片 / 文本 / `tool_use` / ...)
+
+#### compact
+
+- Microcompact: 清理工具调用结果
+
+```typescript
+// 压缩前
+tool_result {
+  tool_use_id: "read_123",
+  content: "...long text..."
+}
+
+// 压缩后
+tool_result {
+  tool_use_id: "read_123",
+  content: "[Old tool result content cleared]"
+}
+```
+
+- History Snip: 直接删某几条 message, 模型通过 message id 判断哪些不需要了
+- Context Collapse: 局部摘要, 模型判断哪些 message 需要压缩, 压成一个 message 替换他们
+- Autocompact: 到阈值后的自动 `/compact`

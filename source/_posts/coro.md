@@ -230,7 +230,7 @@ FinalSuspend:
 
 ### handle
 
-一般来说协程的返回值继承或持有 `coroutine_handle<yourPromise>`, 可以让我们操作协程
+一般来说协程的返回值继承或持有 `coroutine_handle<yourPromise>`, 一个非拥有指针, 可以让我们操作协程
 
 `coroutine_handle` 大概会长这样:
 
@@ -521,9 +521,9 @@ int main() {
 
 实现上基本就是 
 ```cpp
-promise.return_void(); // 或 promise.return_value()
+promise.return_void(); // 或 promise.return_value(<expr>)
 // 销毁变量
-co_await promise.final_suspend(<expr>);
+co_await promise.final_suspend();
 ```
 
 ### 对称转移
@@ -1239,6 +1239,8 @@ bthread 的函数调用栈类似于多线程时不同线程的栈, 挂起时的�
 有栈, 对称转移
 
 ```cpp
+// main()
+
 namespace ctx=boost::context;
 int a;
 ctx::fiber source{[&a](ctx::fiber&& sink){ // sink 由 context 库自动传入
@@ -1254,7 +1256,8 @@ ctx::fiber source{[&a](ctx::fiber&& sink){ // sink 由 context 库自动传入
     return std::move(sink); // 这里和普通函数一样不可达
 }};
 for (int j=0;j<10;++j) {
-    source=std::move(source).resume();
+    source=std::move(source).resume(); // 有点类似 bthread_start_background, source 的栈不在 main 之上; 只不过没有调度器, 是保存上下文后立刻启动的
+    // 寄存器之类的东西还是保存在栈上, 具体手段看平台
     std::cout << a << " ";
 }
 
@@ -1375,13 +1378,38 @@ output:
 */
 ```
 
-### callcc
+### callcc & continuation
 
-### continuation
+
+```cpp
+namespace ctx=boost::context;
+int a;
+ctx::continuation source=ctx::callcc(
+    [&a](ctx::continuation && sink){
+        a=0;
+        int b=1;
+        for(;;){
+            sink=sink.resume();
+            int next=a+b;
+            a=b;
+            b=next;
+        }
+        return std::move(sink);
+    });
+for (int j=0;j<10;++j) {
+    std::cout << a << " ";
+    source=source.resume();
+}
+
+/*
+output:
+    0 1 1 2 3 5 8 13 21 34
+*/
+```
 
 ## Boost.Coroutine
 
-有栈, 非对称转移
+有栈, 
 
 ## Boost.Coroutine2
 
